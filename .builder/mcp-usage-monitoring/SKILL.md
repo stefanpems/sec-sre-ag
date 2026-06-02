@@ -41,10 +41,12 @@ This skill monitors and audits **Model Context Protocol (MCP) server usage** acr
 
 ## 🛠️ Execution Environment
 
-**This skill runs in an environment where the following MCP servers are NOT available:**
+**This skill runs in an environment where the following MCP servers are NOT integrated with Azure SRE Agent:**
 - ❌ **Sentinel MCP Server** (`mcp_microsoft_se2_*` — `query_lake`, `list_sentinel_workspaces`, `search_tables`, etc.)
 - ❌ **Sentinel Triage MCP** (`mcp_mtp_mcp_servi_*` — `RunAdvancedHuntingQuery`, `ListIncidents`, etc.)
 - ❌ **Microsoft Graph MCP** (`mcp_microsoft_ent_*` — `microsoft_graph_get`, etc.)
+
+> **Note:** These MCP servers cannot currently be connected to Azure SRE Agent. The underlying data they expose (Sentinel Data Lake, Defender XDR, Microsoft Graph) is accessible via direct API calls, but direct API access as a replacement has not yet been studied and implemented in this skill.
 
 **Available MCP servers & tools:**
 - ✅ **Azure MCP Server** (`mcp_azure_mcp_ser_*`) — including `mcp_azure_mcp_ser_monitor` for Log Analytics workspace queries
@@ -569,7 +571,7 @@ Collect:
 - **Execute Query 9** — Graph MCP caller attribution (User vs SPN)
 - **Execute Query 15** — Top MCP users ranked by cross-server breadth
 
-**Note:** For SPN enrichment (Query 9 post-processing), since Graph MCP is not available, cross-reference SPNs with `AADServicePrincipalSignInLogs` or `AuditLogs` in the workspace to identify `tags` like `AgenticApp`, `AIAgentBuilder`, etc.
+**Note:** For SPN enrichment (Query 9 post-processing), since Graph MCP is not integrated with Azure SRE Agent, cross-reference SPNs with `AADServicePrincipalSignInLogs` or `AuditLogs` in the workspace to identify `tags` like `AgenticApp`, `AIAgentBuilder`, etc.
 
 ### Phase 7: Score Computation & Report Generation
 

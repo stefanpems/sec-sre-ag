@@ -303,7 +303,7 @@ MicrosoftGraphActivityLogs
 | order by CallCount desc
 ```
 
-**Post-processing:** For `ServicePrincipal/Agent (App-Only)` rows, since Microsoft Graph MCP is not available in this environment, cross-reference SPNs with `AADServicePrincipalSignInLogs` in the workspace:
+**Post-processing:** For `ServicePrincipal/Agent (App-Only)` rows, since Microsoft Graph MCP is not integrated with Azure SRE Agent, cross-reference SPNs with `AADServicePrincipalSignInLogs` in the workspace:
 ```kql
 AADServicePrincipalSignInLogs
 | where TimeGenerated >= ago(30d)
@@ -581,7 +581,7 @@ union graph_mcp, triage_mcp, datalake_mcp, azure_mcp
 
 ## SPN Enrichment Query (Ad-hoc — replaces Graph API lookup)
 
-**Purpose:** Since Microsoft Graph MCP is not available, use this query to enrich Service Principal IDs from Query 9.
+**Purpose:** Since Microsoft Graph MCP is not integrated with Azure SRE Agent, use this query to enrich Service Principal IDs from Query 9.
 
 ```kql
 // SPN enrichment via AADServicePrincipalSignInLogs (replaces Graph API lookup)

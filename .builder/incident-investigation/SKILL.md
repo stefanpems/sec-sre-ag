@@ -8,8 +8,8 @@ description: >
   This skill provides comprehensive incident analysis including metadata retrieval,
   alert listing, asset enumeration, evidence filtering, and deep entity investigation
   using KQL queries via Azure Monitor MCP and specialized sub-skills.
-  Environment: Azure Monitor MCP + Azure CLI — without Sentinel Data Lake MCP,
-  Sentinel Triage MCP, or Microsoft Graph MCP.
+  Environment: Azure Monitor MCP + Azure CLI — currently without Sentinel Data Lake MCP,
+  Sentinel Triage MCP, or Microsoft Graph MCP (not yet connectable to Azure SRE Agent).
 threat_pulse_domains: [incidents]
 drill_down_prompt: 'Investigate incident {entity} — alert details, entity extraction, timeline reconstruction'
 ---
@@ -27,9 +27,11 @@ This skill performs comprehensive security investigations on incidents from **Mi
 - ✅ **KQL Search MCP** (`mcp_kql-search-mc_*`) is available for schema validation and query examples
 - ✅ **Microsoft Learn MCP** (`mcp_microsoft_lea_*` / `mcp_microsoft_le2_*`) is available for documentation
 - ✅ **Azure MCP Server** (`mcp_azure_mcp_ser_*`) is available for Azure resource management
-- ❌ **Sentinel Data Lake MCP** is NOT available (no `query_lake`, `list_sentinel_workspaces`, `search_tables`)
-- ❌ **Sentinel Triage MCP** is NOT available (no `RunAdvancedHuntingQuery`, `GetIncidentById`, `ListAlerts`, `GetDefenderMachine`, etc.)
-- ❌ **Microsoft Graph MCP** is NOT available (no `microsoft_graph_get`, `suggest_queries`)
+- ❌ **Sentinel Data Lake MCP** — not integrated (no `query_lake`, `list_sentinel_workspaces`, `search_tables`)
+- ❌ **Sentinel Triage MCP** — not integrated (no `RunAdvancedHuntingQuery`, `GetIncidentById`, `ListAlerts`, `GetDefenderMachine`, etc.)
+- ❌ **Microsoft Graph MCP** — not integrated (no `microsoft_graph_get`, `suggest_queries`)
+
+> **Why these MCP servers are absent:** Sentinel Data Lake MCP, Sentinel Triage MCP, and Microsoft Graph MCP cannot currently be connected to Azure SRE Agent. This does **not** mean the underlying data is inaccessible — the data exposed by these servers (Sentinel Data Lake, Defender XDR / Advanced Hunting, Microsoft Graph) can be reached via direct API calls. However, direct API access as a replacement for these MCP servers has not yet been studied and implemented in this skill.
 
 **Data sources (Log Analytics via KQL):** SecurityIncident, SecurityAlert, AlertEvidence, AlertInfo, DeviceInfo, SigninLogs, SecurityEvent.
 

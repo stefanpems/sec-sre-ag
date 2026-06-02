@@ -18,7 +18,7 @@ to make specific calls or re-run a single step.
 > **Priority 1:** Use `RunAzCliReadCommands` tool if available (handles auth via Managed Identity).
 > **Priority 2:** Use `az rest` in terminal if `RunAzCliReadCommands` is not available.
 > **NEVER** use `RunAzCliWriteCommands` — even for GET calls (see user-investigation skill for rationale).
-> **NEVER** use `microsoft_graph_get` — the Graph MCP Server is NOT available in this environment.
+> **NEVER** use `microsoft_graph_get` — the Graph MCP Server is not integrated with Azure SRE Agent (cannot currently be connected).
 
 ---
 

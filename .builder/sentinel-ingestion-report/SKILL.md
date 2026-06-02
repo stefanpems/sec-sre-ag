@@ -7,13 +7,13 @@ description: 'Sentinel Ingestion Report — YAML-driven Python pipeline gathers 
 
 ## ⚠️ Environment Constraints — Tool Availability
 
-This skill operates in an environment where the following MCP servers are **NOT available** and therefore **cannot be used for direct querying**:
+This skill operates in an environment where the following MCP servers are **not integrated** with Azure SRE Agent and therefore **cannot be used for direct querying**:
 
-| ❌ NOT Available | Scope | Replacement |
-|-----------------|-------|-------------|
-| **Sentinel MCP Server** (`mcp_microsoft_se2_*`) | Data Lake Exploration, `query_lake`, `search_tables`, `analyze_*` | `az monitor log-analytics query` (KQL via Azure CLI) |
-| **MTP MCP Server** (`mcp_mtp_mcp_servi_*`) | Advanced Hunting, Defender Triage | `az monitor log-analytics query` (KQL via Azure CLI) |
-| **Microsoft Graph MCP** (`mcp_microsoft_ent_*`) | Graph API queries | `az rest` with Graph API endpoints |
+| ❌ Not Integrated | Scope | Replacement | Note |
+|------------------|-------|-------------|------|
+| **Sentinel MCP Server** (`mcp_microsoft_se2_*`) | Data Lake Exploration, `query_lake`, `search_tables`, `analyze_*` | `az monitor log-analytics query` (KQL via Azure CLI) | Cannot currently be connected to Azure SRE Agent. Data reachable via direct API — not yet implemented. |
+| **MTP MCP Server** (`mcp_mtp_mcp_servi_*`) | Advanced Hunting, Defender Triage | `az monitor log-analytics query` (KQL via Azure CLI) | Cannot currently be connected to Azure SRE Agent. Data reachable via direct API — not yet implemented. |
+| **Microsoft Graph MCP** (`mcp_microsoft_ent_*`) | Graph API queries | `az rest` with Graph API endpoints | Cannot currently be connected to Azure SRE Agent. Data reachable via direct API — not yet implemented. |
 
 The following tools **ARE available** and can be used:
 
@@ -223,8 +223,8 @@ The `-Days` parameter drives three time windows used across all queries:
 
 ### 🔴 PROHIBITED
 
-- ❌ Using Sentinel MCP Server (`mcp_microsoft_se2_*`) or MTP MCP Server (`mcp_mtp_mcp_servi_*`) — **NOT available** in this environment. Use `az monitor log-analytics query` for KQL queries instead
-- ❌ Using Microsoft Graph MCP (`mcp_microsoft_ent_*`) — **NOT available** in this environment. Use `az rest` for Graph/REST API queries instead
+- ❌ Using Sentinel MCP Server (`mcp_microsoft_se2_*`) or MTP MCP Server (`mcp_mtp_mcp_servi_*`) — **not integrated** with Azure SRE Agent (cannot currently be connected). Use `az monitor log-analytics query` for KQL queries instead
+- ❌ Using Microsoft Graph MCP (`mcp_microsoft_ent_*`) — **not integrated** with Azure SRE Agent (cannot currently be connected). Use `az rest` for Graph/REST API queries instead
 - ❌ Running KQL queries via any MCP tool during data gathering — the Python script handles all queries via `az monitor log-analytics query`
 - ❌ Writing or modifying scratchpad sections manually — `invoke_ingestion_scan.py` is the sole writer
 - ❌ Reporting cost in dollar amounts — **always use GB savings** (e.g., "~78.7 GB/month savings")
@@ -823,7 +823,7 @@ Use these when the user asks follow-up questions after a report is generated (e.
 | **5. ASIM parser verification** | Which ASIM parsers consume a table slated for migration? | `az rest` + regex match for `_Im_`/`_ASim_` patterns | "ASIM dependency", "do parsers use this table" |
 | **6. Custom Detection rules** | Inventory CD rules via Graph API (query text, schedule, last run) | `az rest` with Graph API endpoint | "custom detection rules", "CD rules", "lookup custom detections" |
 
-> ⚠️ **Graph MCP not available:** The Microsoft Graph MCP server is not available in this environment. For Custom Detection queries, **always use `az rest`** with the Graph API endpoint. For Analytic Rule queries, use `az rest`. See [SKILL-drilldown.md](SKILL-drilldown.md) for the exact endpoint and select fields.
+> ⚠️ **Graph MCP not integrated:** The Microsoft Graph MCP server is not integrated with Azure SRE Agent (cannot currently be connected; direct API access not yet implemented as a replacement). For Custom Detection queries, **always use `az rest`** with the Graph API endpoint. For Analytic Rule queries, use `az rest`. See [SKILL-drilldown.md](SKILL-drilldown.md) for the exact endpoint and select fields.
 
 ### Also in SKILL-drilldown.md
 
