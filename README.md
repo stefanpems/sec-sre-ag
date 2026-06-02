@@ -154,6 +154,56 @@ Performs comprehensive security investigations on Entra ID user accounts. Collec
 
 ---
 
+## Setup
+
+### Managed Identity Permissions
+
+The Azure SRE Agent uses a **User-Assigned Managed Identity (UAMI)** to authenticate against Microsoft Graph API and Microsoft Defender for Endpoint (MDE) API. The UAMI must be granted the required **Application permissions** (not Delegated) before the agent can access Entra ID and MDE data.
+
+#### Required Permissions
+
+| Resource | Permission | Used by |
+|---|---|---|
+| **Microsoft Graph** | `User.Read.All` | user-investigation, identity-posture |
+| **Microsoft Graph** | `Device.Read.All` | computer-investigation |
+| **Microsoft Graph** | `Directory.Read.All` | identity-posture |
+| **Microsoft Graph** | `RoleManagement.Read.Directory` | identity-posture |
+| **Microsoft Graph** | `UserAuthenticationMethod.Read.All` | user-investigation, identity-posture |
+| **Microsoft Graph** | `IdentityRiskyUser.Read.All` | user-investigation, identity-posture |
+| **Microsoft Graph** | `IdentityRiskEvent.Read.All` | user-investigation, identity-posture |
+| **Microsoft Graph** | `AuditLog.Read.All` | user-investigation, identity-posture |
+| **Microsoft Graph** | `Reports.Read.All` | identity-posture |
+| **WindowsDefenderATP** | `Machine.Read.All` | computer-investigation, ioc-investigation |
+| **WindowsDefenderATP** | `Alert.Read.All` | incident-investigation, ioc-investigation |
+| **WindowsDefenderATP** | `File.Read.All` | ioc-investigation |
+| **WindowsDefenderATP** | `Ip.Read.All` | ioc-investigation |
+| **WindowsDefenderATP** | `Url.Read.All` | ioc-investigation |
+| **WindowsDefenderATP** | `Ti.Read.All` | ioc-investigation |
+| **WindowsDefenderATP** | `Vulnerability.Read.All` | computer-investigation, ioc-investigation |
+
+All permissions are **read-only** (Application type, not Delegated).
+
+#### How to Assign
+
+Run the setup script from **Azure Cloud Shell (Bash)** with an account that has **Global Administrator** or **Privileged Role Administrator** role:
+
+```bash
+# Clone the repo (or upload the script)
+git clone https://github.com/stefanpems/sec-sre-ag.git
+cd sec-sre-ag/setup
+
+# Run with the UAMI Object ID
+# (find it in Azure Portal → Managed Identities → <agent-name> → Overview)
+chmod +x assign-permissions.sh
+./assign-permissions.sh <UAMI_OBJECT_ID>
+```
+
+The script is idempotent — it skips permissions already assigned. See [`setup/assign-permissions.sh`](setup/assign-permissions.sh) for details.
+
+> **Note:** After running the script, wait up to 1 hour for the Entra ID token cache to refresh. Skills that depend on Graph API (`user-investigation`, `computer-investigation`, `identity-posture`) include KQL-based fallback queries that work even when Graph API permissions are not yet granted.
+
+---
+
 ## Sandbox Architecture & Script Retrieval
 
 ### How the Sandbox Works
