@@ -129,6 +129,46 @@ Before executing any skill file (scripts, data files, companion files), resolve 
 - When materializing from Builder (step 3), materialize ALL companion files the script depends on, not just the script itself.
 - This cascade applies to every file listed in the Skill Files table above.
 
+### Pre-requisite: Environment Configuration (config.json)
+
+Before executing any script resolved via the File Resolution cascade, the agent MUST ensure that `config.json` exists at the **workspace root** (the top-level directory of the agent workspace, NOT inside `codeRefs/` or skill-specific directories).
+
+**Procedure:**
+
+1. **Check:** Verify that `config.json` exists at the workspace root and contains a non-empty `sentinel_workspace_id` value. If it does, skip to step 3.
+
+2. **If `config.json` is missing or incomplete**, create it:
+   a. **Ask the user** for the tenant name using AskUserQuestion with header "Tenant" and question: "What is your tenant name? (e.g., contoso.onmicrosoft.com or contoso.it)?"
+   b. **Extract from agent system prompt settings:**
+      - `subscription_id` → from the `<azure_resource_access>` section (the subscription ID the agent has access to)
+      - `sentinel_workspace_id` → from the `<log_analytics_access>` section (the workspace GUID after `workspace=`)
+      - `workspace_name` → from the `<log_analytics_access>` section (the workspace name before the colon)
+   c. **Discover** the workspace resource group by running:
+      ```
+      az monitor log-analytics workspace show --workspace-name <workspace_name> --subscription <subscription_id> --query resourceGroup -o tsv
+      ```
+   d. **Create** `config.json` at the workspace root with this structure:
+      ```json
+      {
+        "tenant_name": "<tenant_name>",
+        "sentinel_workspace_id": "<workspace_guid>",
+        "subscription_id": "<subscription_id>",
+        "azure_mcp": {
+          "subscription_id": "<subscription_id>",
+          "resource_group": "<discovered_resource_group>",
+          "workspace_name": "<workspace_name>"
+        },
+        "api_tokens": {}
+      }
+      ```
+
+3. **Proceed** with the skill workflow. All Python scripts find `config.json` by walking up from their own directory (max 6 levels), so the workspace root is the correct and expected location.
+
+**Rules:**
+- Do NOT write `config.json` inside `codeRefs/` or inside skill-specific directories.
+- Do NOT hardcode any environment-specific values in this skill file — all values are derived at runtime from the agent's own settings and user input.
+- The `api_tokens` object is left empty — API tokens are loaded from Key Vault or environment variables at runtime.
+
 ---
 
 ## Output Modes

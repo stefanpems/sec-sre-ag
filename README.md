@@ -251,6 +251,16 @@ Once the agent has resolved a script to a filesystem path and invokes it with `p
 
 No script manipulates `sys.path` or imports modules from other skill directories. Every script is self-contained. Shared utilities (e.g., `shared/enrich_ips.py`) are invoked as subprocesses, not imported.
 
+### Dynamic `config.json` Creation
+
+Every skill's SKILL.md includes a **Pre-requisite: Environment Configuration** section that instructs the agent to ensure `config.json` exists at the workspace root before running any script. The agent creates this file dynamically at the start of each session by:
+
+1. **Checking** whether `config.json` already exists at the workspace root with a non-empty `sentinel_workspace_id`.
+2. **If missing**, extracting environment values from the agent's own platform settings (`<azure_resource_access>`, `<log_analytics_access>`), asking the user for the tenant name, and discovering the resource group via `az monitor log-analytics workspace show`.
+3. **Writing** `config.json` at the workspace root with `tenant_name`, `sentinel_workspace_id`, `subscription_id`, and `azure_mcp` fields.
+
+At runtime, every Python script finds `config.json` by walking up from its own directory (up to 6 levels of parent directories). Because the workspace root is always an ancestor of both `codeRefs/sec-sre-ag/<skill>/` and `tmp/<skill>/`, the file is found regardless of which File Resolution cascade step resolved the script. The `api_tokens` object is left empty — API tokens are loaded from Key Vault or environment variables independently.
+
 ---
 
 ## Repository Structure
