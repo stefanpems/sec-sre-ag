@@ -31,7 +31,7 @@ This skill performs comprehensive security investigations on incidents from **Mi
 - ❌ **Sentinel Triage MCP** — not integrated (no `RunAdvancedHuntingQuery`, `GetIncidentById`, `ListAlerts`, `GetDefenderMachine`, etc.)
 - ❌ **Microsoft Graph MCP** — not integrated (no `microsoft_graph_get`, `suggest_queries`)
 
-> **Why these MCP servers are absent:** Sentinel Data Lake MCP, Sentinel Triage MCP, and Microsoft Graph MCP cannot currently be connected to Azure SRE Agent. This does **not** mean the underlying data is inaccessible — the data exposed by these servers (Sentinel Data Lake, Defender XDR / Advanced Hunting, Microsoft Graph) can be reached via direct API calls. However, direct API access as a replacement for these MCP servers has not yet been studied and implemented in this skill.
+> **Why these MCP servers are absent:** Sentinel Data Lake MCP, Sentinel Triage MCP, and Microsoft Graph MCP cannot currently be connected to Azure SRE Agent. This does **not** mean the underlying data is inaccessible — the data exposed by these servers (Sentinel Data Lake, Defender XDR / Advanced Hunting, Microsoft Graph) can be reached via direct API calls. However, direct API access to Sentinel Data Lake and Microsoft Graph as a replacement for these MCP servers has not yet been studied and implemented in this skill.
 
 **Data sources (Log Analytics via KQL):** SecurityIncident, SecurityAlert, AlertEvidence, AlertInfo, DeviceInfo, SigninLogs, SecurityEvent.
 

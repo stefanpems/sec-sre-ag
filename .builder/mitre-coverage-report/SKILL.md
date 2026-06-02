@@ -22,7 +22,7 @@ This skill generates a comprehensive **MITRE ATT&CK Coverage Report** analyzing 
 
 ## Environment & Data Gathering
 
-> ⚠️ **This skill runs in an environment where Sentinel MCP Server and Microsoft Graph MCP are not integrated with Azure SRE Agent** (these MCP servers cannot currently be connected; the underlying data is accessible via direct API, but this approach has not yet been studied and implemented in this skill).
+> ⚠️ **This skill runs in an environment where Sentinel MCP Server and Microsoft Graph MCP are not integrated with Azure SRE Agent** (these MCP servers cannot currently be connected; direct API access to Sentinel Data Lake and Microsoft Graph as a replacement has not yet been studied and implemented in this skill).
 > All data is gathered exclusively by `invoke_mitre_scan.py` using:
 > - **`az rest`** — Sentinel REST API (analytic rules, SOC Optimization) + Microsoft Graph API (Custom Detections)
 > - **`az monitor log-analytics query`** — KQL queries against Log Analytics
@@ -304,7 +304,7 @@ Apply SKILL-report.md templates to scratchpad data, following Rules A–D. See [
 
 - ❌ Proceeding to any workflow step (parameter collection, data gathering, rendering) before file materialization is complete — files are materialized to `tmp/mitre-coverage-report/` immediately on skill activation
 - ❌ Running REST/KQL queries via MCP tools **during Mode A (direct) execution** — invoke_mitre_scan.py handles all queries. Exception: **Mode B (prefetch) uses native tools** (`RunAzCliReadCommands`, `monitor-client` MCP) to collect data when terminal `az` is blocked
-- ❌ Using `mcp_microsoft_se2_*` (Sentinel MCP) or `mcp_mtp_mcp_servi_*` (Defender MCP) or `mcp_microsoft_ent_*` (Graph MCP) — these are not integrated with Azure SRE Agent (cannot currently be connected; data reachable via direct API, but not yet implemented). Note: `monitor-client_monitor_workspace_log_query` (Azure Monitor MCP) IS available and used for KQL in Mode B prefetch
+- ❌ Using `mcp_microsoft_se2_*` (Sentinel MCP) or `mcp_mtp_mcp_servi_*` (Defender MCP) or `mcp_microsoft_ent_*` (Graph MCP) — these are not integrated with Azure SRE Agent (cannot currently be connected; direct API access to Sentinel Data Lake and Microsoft Graph not yet implemented). Note: `monitor-client_monitor_workspace_log_query` (Azure Monitor MCP) IS available and used for KQL in Mode B prefetch
 - ❌ Writing or modifying scratchpad sections manually — the script is the sole writer
 - ❌ Fabricating technique counts, rule names, or coverage percentages
 - ❌ Inventing ATT&CK technique IDs or names not in the reference JSON

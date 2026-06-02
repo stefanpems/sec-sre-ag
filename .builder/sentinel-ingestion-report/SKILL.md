@@ -11,9 +11,9 @@ This skill operates in an environment where the following MCP servers are **not 
 
 | ❌ Not Integrated | Scope | Replacement | Note |
 |------------------|-------|-------------|------|
-| **Sentinel MCP Server** (`mcp_microsoft_se2_*`) | Data Lake Exploration, `query_lake`, `search_tables`, `analyze_*` | `az monitor log-analytics query` (KQL via Azure CLI) | Cannot currently be connected to Azure SRE Agent. Data reachable via direct API — not yet implemented. |
-| **MTP MCP Server** (`mcp_mtp_mcp_servi_*`) | Advanced Hunting, Defender Triage | `az monitor log-analytics query` (KQL via Azure CLI) | Cannot currently be connected to Azure SRE Agent. Data reachable via direct API — not yet implemented. |
-| **Microsoft Graph MCP** (`mcp_microsoft_ent_*`) | Graph API queries | `az rest` with Graph API endpoints | Cannot currently be connected to Azure SRE Agent. Data reachable via direct API — not yet implemented. |
+| **Sentinel MCP Server** (`mcp_microsoft_se2_*`) | Data Lake Exploration, `query_lake`, `search_tables`, `analyze_*` | `az monitor log-analytics query` (KQL via Azure CLI) | Cannot currently be connected to Azure SRE Agent. Direct API access to Sentinel Data Lake not yet implemented. |
+| **MTP MCP Server** (`mcp_mtp_mcp_servi_*`) | Advanced Hunting, Defender Triage | `az monitor log-analytics query` (KQL via Azure CLI) | Cannot currently be connected to Azure SRE Agent. Direct API access to Sentinel Data Lake not yet implemented. |
+| **Microsoft Graph MCP** (`mcp_microsoft_ent_*`) | Graph API queries | `az rest` with Graph API endpoints | Cannot currently be connected to Azure SRE Agent. Direct API access to Microsoft Graph not yet implemented. |
 
 The following tools **ARE available** and can be used:
 
@@ -823,7 +823,7 @@ Use these when the user asks follow-up questions after a report is generated (e.
 | **5. ASIM parser verification** | Which ASIM parsers consume a table slated for migration? | `az rest` + regex match for `_Im_`/`_ASim_` patterns | "ASIM dependency", "do parsers use this table" |
 | **6. Custom Detection rules** | Inventory CD rules via Graph API (query text, schedule, last run) | `az rest` with Graph API endpoint | "custom detection rules", "CD rules", "lookup custom detections" |
 
-> ⚠️ **Graph MCP not integrated:** The Microsoft Graph MCP server is not integrated with Azure SRE Agent (cannot currently be connected; direct API access not yet implemented as a replacement). For Custom Detection queries, **always use `az rest`** with the Graph API endpoint. For Analytic Rule queries, use `az rest`. See [SKILL-drilldown.md](SKILL-drilldown.md) for the exact endpoint and select fields.
+> ⚠️ **Graph MCP not integrated:** The Microsoft Graph MCP server is not integrated with Azure SRE Agent (cannot currently be connected; direct API access to Microsoft Graph as a replacement not yet implemented). For Custom Detection queries, **always use `az rest`** with the Graph API endpoint. For Analytic Rule queries, use `az rest`. See [SKILL-drilldown.md](SKILL-drilldown.md) for the exact endpoint and select fields.
 
 ### Also in SKILL-drilldown.md
 

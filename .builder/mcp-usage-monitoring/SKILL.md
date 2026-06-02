@@ -46,7 +46,7 @@ This skill monitors and audits **Model Context Protocol (MCP) server usage** acr
 - ❌ **Sentinel Triage MCP** (`mcp_mtp_mcp_servi_*` — `RunAdvancedHuntingQuery`, `ListIncidents`, etc.)
 - ❌ **Microsoft Graph MCP** (`mcp_microsoft_ent_*` — `microsoft_graph_get`, etc.)
 
-> **Note:** These MCP servers cannot currently be connected to Azure SRE Agent. The underlying data they expose (Sentinel Data Lake, Defender XDR, Microsoft Graph) is accessible via direct API calls, but direct API access as a replacement has not yet been studied and implemented in this skill.
+> **Note:** These MCP servers cannot currently be connected to Azure SRE Agent. The underlying data they expose (Sentinel Data Lake, Defender XDR, Microsoft Graph) is accessible via direct API calls, but direct API access to Sentinel Data Lake and Microsoft Graph as a replacement has not yet been studied and implemented in this skill.
 
 **Available MCP servers & tools:**
 - ✅ **Azure MCP Server** (`mcp_azure_mcp_ser_*`) — including `mcp_azure_mcp_ser_monitor` for Log Analytics workspace queries

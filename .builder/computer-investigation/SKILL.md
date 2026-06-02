@@ -4,7 +4,7 @@ description: >
   Computer/device security investigation skill for environments with Azure Monitor MCP
   (Log Analytics workspace queries) and Azure CLI access — currently without
   Sentinel Data Lake MCP, Sentinel Triage MCP, or Microsoft Graph MCP
-  (these cannot be connected to Azure SRE Agent yet; direct API access not yet implemented).
+  (these cannot be connected to Azure SRE Agent yet; direct API access to Sentinel Data Lake and Microsoft Graph not yet implemented).
   Device data from Entra ID is collected via Azure CLI (`az rest` for Graph API)
   or KQL fallback queries from DeviceInfo/SigninLogs.
   KQL queries run against Log Analytics tables through the Azure Monitor MCP tool.
@@ -19,12 +19,12 @@ This skill performs comprehensive security investigations on Windows, macOS, and
 
 - ✅ **Azure Monitor MCP tool** is available (`monitor-client_monitor_workspace_log_query`) for KQL queries against Log Analytics
 - ✅ **Azure CLI** (`az` in shell or `RunAzCliReadCommands` tool) is available for read operations (including `az rest` for Graph API)
-- ⚠️ **Graph API permissions** may NOT be granted — KQL-based fallback queries provided
+- ⚠️ **Microsoft Graph MCP Server for Enterprise** (`mcp_microsoft_ent_*`) is not available for integration with Azure SRE Agent, but access to Entra ID data is possible and implemented in this skill via direct Graph API calls (`az rest` / `RunAzCliReadCommands`). The agent’s User-Assigned Managed Identity must be granted the required Graph API permissions (see the README — Managed Identity Permissions section). KQL-based fallback queries are provided if Graph API permissions are not granted.
 - ❌ **Sentinel Data Lake MCP** — not integrated (no `query_lake`, `list_sentinel_workspaces`, `search_tables`)
 - ❌ **Sentinel Triage MCP** — not integrated (no `RunAdvancedHuntingQuery`, `GetDefenderMachine`, `GetDefenderMachineLoggedOnUsers`, etc.)
 - ❌ **Microsoft Graph MCP** — not integrated (no `microsoft_graph_get`, `suggest_queries`)
 
-> **Why these MCP servers are absent:** Sentinel Data Lake MCP, Sentinel Triage MCP, and Microsoft Graph MCP cannot currently be connected to Azure SRE Agent. This does **not** mean the underlying data is inaccessible — the data exposed by these servers (Sentinel Data Lake, Defender XDR / Advanced Hunting, Microsoft Graph) can be reached via direct API calls. However, direct API access as a replacement for these MCP servers has not yet been studied and implemented in this skill.
+> **Why these MCP servers are absent:** Sentinel Data Lake MCP, Sentinel Triage MCP, and Microsoft Graph MCP cannot currently be connected to Azure SRE Agent. This does **not** mean the underlying data is inaccessible — the data exposed by these servers (Sentinel Data Lake, Defender XDR / Advanced Hunting, Microsoft Graph) can be reached via direct API calls. However, direct API access to Sentinel Data Lake and Microsoft Graph as a replacement for these MCP servers has not yet been studied and implemented in this skill.
 
 **Data sources (Log Analytics):** DeviceInfo, DeviceProcessEvents, DeviceNetworkEvents, DeviceFileEvents, DeviceRegistryEvents, DeviceLogonEvents, SigninLogs, SecurityAlert, SecurityIncident, ThreatIntelIndicators.
 

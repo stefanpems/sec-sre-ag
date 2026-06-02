@@ -21,9 +21,9 @@ Generate validated, production-ready KQL queries by combining schema validation 
 | **Microsoft Learn MCP** (`mcp_microsoft_lea_*` / `mcp_microsoft_le2_*`) | ✅ YES | Official documentation and code samples |
 | **Azure MCP Server** (`mcp_azure_mcp_ser_*`) | ✅ YES | Azure resource management, Log Analytics workspace queries |
 | **Log Analytics direct query** | ✅ YES | Can execute KQL directly against Log Analytics workspace tables |
-| **Sentinel Data Lake** (`mcp_microsoft_se2_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Data reachable via direct API (not yet implemented). Suggest query for user to copy/paste |
-| **Advanced Hunting / Triage MCP** (`mcp_mtp_mcp_servi_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Data reachable via direct API (not yet implemented). Suggest query for user to copy/paste |
-| **Microsoft Graph MCP** (`mcp_microsoft_ent_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Data reachable via direct API (not yet implemented). Suggest API calls or portal steps |
+| **Sentinel Data Lake** (`mcp_microsoft_se2_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Direct API access to Sentinel Data Lake not yet implemented. Suggest query for user to copy/paste |
+| **Advanced Hunting / Triage MCP** (`mcp_mtp_mcp_servi_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Direct API access to Sentinel Data Lake not yet implemented. Suggest query for user to copy/paste |
+| **Microsoft Graph MCP** (`mcp_microsoft_ent_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Direct API access to Microsoft Graph not yet implemented. Suggest API calls or portal steps |
 
 **Execution model:**
 - **Log Analytics tables**: Execute directly and present results.
@@ -350,7 +350,7 @@ adaptation_notes: "Statistical baseline — requires bare summarize, not CD-comp
 | `mcp_microsoft_lea_microsoft_docs_search` | Search Microsoft Learn documentation |
 | `mcp_microsoft_lea_microsoft_docs_fetch` | Fetch full content from a Microsoft Learn page |
 
-**Not integrated with Azure SRE Agent** (these MCP servers cannot currently be connected — data reachable via direct API, but not yet implemented):
+**Not integrated with Azure SRE Agent** (these MCP servers cannot currently be connected — direct API access to Sentinel Data Lake and Microsoft Graph not yet implemented):
 
 | Tool | Alternative |
 |------|-------------|

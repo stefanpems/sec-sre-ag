@@ -7,7 +7,7 @@ description: >
   Trigger on getting-started questions like "where do I start", "what can you do",
   "help me investigate", "threat pulse", "run a scan", "security overview".
   This skill operates without Sentinel Data Lake MCP, Advanced Hunting MCP, or Microsoft Graph MCP
-  (these cannot currently be connected to Azure SRE Agent; direct API access not yet implemented).
+  (these cannot currently be connected to Azure SRE Agent; direct API access to Sentinel Data Lake and Microsoft Graph not yet implemented).
   Queries run against Log Analytics via Azure Monitor MCP; AH-only queries (Q11, Q12) are
   presented to the user for copy/paste execution.
 ---
@@ -131,9 +131,9 @@ Set `<SKILL_DIR>=tmp/threat-pulse`.
 | **Microsoft Learn MCP** (`mcp_microsoft_lea_*` / `mcp_microsoft_le2_*`) | ✅ YES | Official documentation and code samples |
 | **Azure MCP Server** (`mcp_azure_mcp_ser_*`) | ✅ YES | Azure resource management |
 | **`RunAzCliReadCommands` tool** | ⚠️ MAYBE | Graph API calls via `az rest`. If unavailable, KQL fallback for user OID/device ID |
-| **Sentinel Data Lake** (`mcp_microsoft_se2_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Data reachable via direct API (not yet implemented). |
-| **Advanced Hunting / Triage MCP** (`mcp_mtp_mcp_servi_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Data reachable via direct API (not yet implemented). |
-| **Microsoft Graph MCP** (`mcp_microsoft_ent_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Data reachable via direct API (not yet implemented). |
+| **Sentinel Data Lake** (`mcp_microsoft_se2_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Direct API access to Sentinel Data Lake not yet implemented. |
+| **Advanced Hunting / Triage MCP** (`mcp_mtp_mcp_servi_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Direct API access to Sentinel Data Lake not yet implemented. |
+| **Microsoft Graph MCP** (`mcp_microsoft_ent_*`) | ❌ NO | Not integrated — cannot currently be connected to Azure SRE Agent. Direct API access to Microsoft Graph not yet implemented. |
 
 ### Execution Model (Two-Tier)
 
