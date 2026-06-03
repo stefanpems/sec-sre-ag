@@ -156,51 +156,121 @@ Performs comprehensive security investigations on Entra ID user accounts. Collec
 
 ## Setup
 
-### Managed Identity Permissions
+### 1. API Permissions (Graph + MDE)
 
-The Azure SRE Agent uses a **User-Assigned Managed Identity (UAMI)** to authenticate against Microsoft Graph API and Microsoft Defender for Endpoint (MDE) API. The UAMI must be granted the required **Application permissions** (not Delegated) before the agent can access Entra ID and MDE data.
+The agent's **User-Assigned Managed Identity (UAMI)** needs read-only **Application permissions** on Microsoft Graph and WindowsDefenderATP APIs.
 
-#### Required Permissions
+#### Microsoft Graph
 
-| Resource | Permission | Used by |
+| Permission | Skills | Notes |
 |---|---|---|
-| **Microsoft Graph** | `User.Read.All` | user-investigation, identity-posture |
-| **Microsoft Graph** | `Device.Read.All` | computer-investigation |
-| **Microsoft Graph** | `Directory.Read.All` | identity-posture |
-| **Microsoft Graph** | `RoleManagement.Read.Directory` | identity-posture |
-| **Microsoft Graph** | `UserAuthenticationMethod.Read.All` | user-investigation, identity-posture |
-| **Microsoft Graph** | `IdentityRiskyUser.Read.All` | user-investigation, identity-posture |
-| **Microsoft Graph** | `IdentityRiskEvent.Read.All` | user-investigation, identity-posture |
-| **Microsoft Graph** | `AuditLog.Read.All` | user-investigation, identity-posture |
-| **Microsoft Graph** | `Reports.Read.All` | identity-posture |
-| **WindowsDefenderATP** | `Machine.Read.All` | computer-investigation, ioc-investigation |
-| **WindowsDefenderATP** | `Alert.Read.All` | incident-investigation, ioc-investigation |
-| **WindowsDefenderATP** | `File.Read.All` | ioc-investigation |
-| **WindowsDefenderATP** | `Ip.Read.All` | ioc-investigation |
-| **WindowsDefenderATP** | `Url.Read.All` | ioc-investigation |
-| **WindowsDefenderATP** | `Ti.Read.All` | ioc-investigation |
-| **WindowsDefenderATP** | `Vulnerability.Read.All` | computer-investigation, ioc-investigation |
+| `User.Read.All` | user-investigation, identity-posture | |
+| `Device.Read.All` | computer-investigation | |
+| `Directory.Read.All` | identity-posture | |
+| `RoleManagement.Read.Directory` | identity-posture | |
+| `UserAuthenticationMethod.Read.All` | user-investigation, identity-posture | |
+| `IdentityRiskyUser.Read.All` | user-investigation, identity-posture | Requires Entra ID P2 |
+| `IdentityRiskEvent.Read.All` | user-investigation, identity-posture | Requires Entra ID P2 |
+| `AuditLog.Read.All` | user-investigation, identity-posture | |
+| `Reports.Read.All` | identity-posture | |
+
+#### WindowsDefenderATP (MDE)
+
+| Permission | Skills | Notes |
+|---|---|---|
+| `Machine.Read.All` | computer-investigation, ioc-investigation | |
+| `Alert.Read.All` | incident-investigation, ioc-investigation | |
+| `File.Read.All` | ioc-investigation | |
+| `Ip.Read.All` | ioc-investigation | |
+| `Url.Read.All` | ioc-investigation | |
+| `Ti.Read.All` | ioc-investigation | |
+| `AdvancedQuery.Read.All` | computer-investigation, ioc-investigation | Advanced Hunting queries |
+| `Vulnerability.Read.All` | computer-investigation, ioc-investigation | |
 
 All permissions are **read-only** (Application type, not Delegated).
 
-#### How to Assign
+#### How to assign
 
 Run the setup script from **Azure Cloud Shell (Bash)** with an account that has **Global Administrator** or **Privileged Role Administrator** role:
 
 ```bash
-# Clone the repo (or upload the script)
 git clone https://github.com/stefanpems/sec-sre-ag.git
 cd sec-sre-ag/setup
-
-# Run with the UAMI Object ID
-# (find it in Azure Portal → Managed Identities → <agent-name> → Overview)
 chmod +x assign-permissions.sh
 ./assign-permissions.sh <UAMI_OBJECT_ID>
 ```
 
-The script is idempotent — it skips permissions already assigned. See [`setup/assign-permissions.sh`](setup/assign-permissions.sh) for details.
+Where `<UAMI_OBJECT_ID>` is the Object ID of the agent's User-Assigned Managed Identity (Azure Portal → Managed Identities → *your-identity* → Overview).
 
-> **Note:** After running the script, wait up to 1 hour for the Entra ID token cache to refresh. Skills that depend on Graph API (`user-investigation`, `computer-investigation`, `identity-posture`) include KQL-based fallback queries that work even when Graph API permissions are not yet granted.
+The script is idempotent — it skips permissions already assigned. After running, wait up to 1 hour for the Entra ID token cache to refresh.
+
+> **Note:** Skills that depend on Graph API (`user-investigation`, `computer-investigation`, `identity-posture`) include KQL-based fallback queries that work even when Graph API permissions are not yet effective.
+
+### 2. Azure RBAC Roles
+
+The UAMI also needs Azure RBAC roles for Sentinel workspace access and (optionally) Key Vault secret retrieval.
+
+| Role | Scope | Purpose |
+|---|---|---|
+| **Microsoft Sentinel Reader** | Log Analytics workspace | All skills querying Sentinel tables via Azure Monitor MCP (includes Log Analytics Reader) |
+| **Key Vault Secrets User** | Key Vault resource | Optional — only needed for IP enrichment API tokens |
+
+Assign with Azure CLI:
+
+```bash
+# Sentinel Reader (required)
+az role assignment create \
+  --assignee <UAMI_PRINCIPAL_ID> \
+  --role "Microsoft Sentinel Reader" \
+  --scope "/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<WORKSPACE_RG>/providers/Microsoft.OperationalInsights/workspaces/<WORKSPACE_NAME>"
+
+# Key Vault Secrets User (optional — only if using IP enrichment)
+az role assignment create \
+  --assignee <UAMI_PRINCIPAL_ID> \
+  --role "Key Vault Secrets User" \
+  --scope "/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<KEYVAULT_RG>/providers/Microsoft.KeyVault/vaults/<KEYVAULT_NAME>"
+```
+
+Replace the `<PLACEHOLDERS>` with your actual values.
+
+### 3. Key Vault Setup (optional — IP enrichment)
+
+The `shared/enrich_ips.py` script enriches IP addresses with third-party threat intelligence. If you want to use it, store API tokens as secrets in an Azure Key Vault and grant the UAMI **Key Vault Secrets User** role (see §2 above).
+
+| Secret name | Service | Required |
+|---|---|---|
+| `ABUSEIPDB-TOKEN` | [AbuseIPDB](https://www.abuseipdb.com/) | Recommended |
+| `IPINFO-TOKEN` | [ipinfo.io](https://ipinfo.io/) | Recommended |
+| `VPNAPI-TOKEN` | [vpnapi.io](https://vpnapi.io/) | Optional |
+| `SHODAN-TOKEN` | [Shodan](https://www.shodan.io/) | Optional |
+
+Skills affected: `user-investigation`, `ioc-investigation`.
+
+### 4. Data Connector Prerequisites
+
+The skills query tables that are populated by **Microsoft Sentinel data connectors**. Enable the relevant connectors in your Sentinel workspace:
+
+| Connector | Key tables | Skills |
+|---|---|---|
+| Microsoft Entra ID | `SigninLogs`, `AADNonInteractiveUserSignInLogs`, `AuditLogs` | user-investigation, identity-posture, incident-statistics |
+| Microsoft Defender XDR | `AlertInfo`, `AlertEvidence`, `SecurityIncident`, `SecurityAlert` | incident-investigation, incident-listing, incident-statistics, threat-pulse |
+| Microsoft Defender for Endpoint | `DeviceProcessEvents`, `DeviceNetworkEvents`, `DeviceLogonEvents`, `DeviceFileEvents`, `DeviceInfo` | computer-investigation, ioc-investigation |
+| Microsoft Defender for Identity | `IdentityLogonEvents`, `IdentityDirectoryEvents` | user-investigation |
+| Microsoft Defender for Cloud Apps | `CloudAppEvents` | user-investigation |
+| Office 365 | `OfficeActivity` | user-investigation |
+| Entra ID Identity Protection | `AADRiskyUsers`, `AADUserRiskEvents` | user-investigation, identity-posture |
+| Threat Intelligence — MDTI | `ThreatIntelIndicators` | ioc-investigation |
+
+### 5. Diagnostic Settings (optional)
+
+For MCP usage monitoring and audit capabilities, enable these diagnostic settings on the Log Analytics workspace:
+
+| Diagnostic setting | Table | Used by |
+|---|---|---|
+| **Audit** → `Log Analytics workspace queries` | `LAQueryLogs` | mcp-usage-monitoring |
+| **Audit** → `Microsoft Graph activity logs` | `MicrosoftGraphActivityLogs` | mcp-usage-monitoring |
+
+These are optional — all other skills work without them.
 
 ---
 

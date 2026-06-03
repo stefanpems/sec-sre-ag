@@ -88,6 +88,7 @@ PERMISSIONS=(
   "$MDE_SP_OBJECT_ID|47bf842d-354b-49ef-b741-3a6dd815bc13|Ip.Read.All"
   "$MDE_SP_OBJECT_ID|721af526-ffa8-42d7-9b84-1a56244dd99d|Url.Read.All"
   "$MDE_SP_OBJECT_ID|528ca142-c849-4a5b-935e-10b8b9c38a84|Ti.Read.All"
+  "$MDE_SP_OBJECT_ID|93489bf5-0fbc-4f2d-b901-33f2fe08ff05|AdvancedQuery.Read.All"
   "$MDE_SP_OBJECT_ID|41269fc5-d04d-4bfd-bce7-43a51cea049a|Vulnerability.Read.All"
 )
 
