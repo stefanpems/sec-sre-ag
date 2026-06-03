@@ -272,6 +272,24 @@ For MCP usage monitoring and audit capabilities, enable these diagnostic setting
 
 These are optional — all other skills work without them.
 
+### 6. Known Issues & Memory Seeding
+
+The skills have been tested extensively and several **platform constraints, KQL pitfalls, and operational patterns** have been documented in [`docs/known-issues.md`](docs/known-issues.md). These include:
+
+- Sandbox limitations (no PowerShell, no shell `az`, MI token caching up to 24h)
+- KQL column-name gotchas (`ThreatIntelIndicators` vs deprecated `ThreatIntelligenceIndicator`, `SecurityIncident` alignment with Defender XDR portal, `SentinelHealth` casing)
+- Operational patterns (prefetch workflow, sequential Graph API calls)
+
+**First-time setup:** After connecting this repository to your agent, ask it to seed its memory with these learnings in the first conversation:
+
+```
+Read the file codeRefs/sec-sre-ag/docs/known-issues.md and save its contents 
+to your memory as operational knowledge. Organize it into your debugging index 
+and behavior expectations as you see fit.
+```
+
+This is a one-time operation — the agent remembers across threads. See the guide's [full instructions](docs/known-issues.md#using-this-guide-with-the-agent) for details.
+
 ---
 
 ## Sandbox Architecture & Script Retrieval
