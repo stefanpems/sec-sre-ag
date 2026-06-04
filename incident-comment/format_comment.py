@@ -693,6 +693,15 @@ def main():
              "so the agent's ReadFile tool can read the full body without truncation. "
              "To reconstruct the original JSON, concatenate all lines (strip newlines).",
     )
+    parser.add_argument(
+        "--max-body-chars",
+        type=int,
+        default=4000,
+        help="Max total chars for the serialized JSON body (for safe inline "
+             "transport via 'az rest --body' in RunAzCliWriteCommands). "
+             "The script auto-reduces HTML (strips styles, collapses whitespace) "
+             "to fit. Set to 0 to disable. Default: 4000.",
+    )
 
     args = parser.parse_args()
 
@@ -762,19 +771,74 @@ def main():
             sys.exit(0)
 
     # Build JSON body
-    if args.api == "graph":
-        body = build_graph_body(converted)
-    else:
-        body = build_sentinel_body(converted)
+    build_fn = build_graph_body if args.api == "graph" else build_sentinel_body
+    body = build_fn(converted)
 
-    # Write output (compact single-line JSON — safe to read and pass inline to az rest)
+    # ── Transport preparation & size check ────────────────────────
+    # RunAzCliWriteCommands passes --body inline to az CLI.
+    #
+    # Two constraints must be satisfied simultaneously:
+    #   1. SIZE: body JSON > ~4 KB → argument parser mis-splits on spaces
+    #      → "unrecognized arguments" error.
+    #   2. ESCAPES: \n and \uXXXX JSON escapes confuse az rest's JSON
+    #      auto-detection → sends body as text/plain → 415 Unsupported
+    #      Media Type from the ARM API.
+    #
+    # Solution:
+    #   • Strip newlines from HTML (safe — HTML treats \n as whitespace)
+    #   • Use ensure_ascii=False (real Unicode chars, no \uXXXX escapes)
+    #   • Use compact separators (no spaces after , and :)
+    #   • Auto-reduce HTML (strip styles/whitespace) until body fits
+    transport_reduced = False
+    if args.max_body_chars > 0:
+        # Strip newlines — they produce \n escapes that cause 415
+        converted = converted.replace("\n", " ")
+        converted = re.sub(r"  +", " ", converted).strip()
+        body = build_fn(converted)
+
+        body_json = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
+        if len(body_json) > args.max_body_chars:
+            transport_reduced = True
+            target = max(200, int(args.max_body_chars * 0.75))
+            for _attempt in range(6):
+                reduced = _reduce_html(converted, target)
+                reduced = reduced.replace("\n", " ")
+                reduced = re.sub(r"  +", " ", reduced).strip()
+                body = build_fn(reduced)
+                body_json = json.dumps(
+                    body, ensure_ascii=False, separators=(",", ":")
+                )
+                if len(body_json) <= args.max_body_chars:
+                    converted = reduced
+                    break
+                target = int(target * 0.7)
+            else:
+                converted = reduced  # best effort
+            print(
+                f"WARN: Body auto-reduced to fit transport limit "
+                f"({args.max_body_chars:,} chars). "
+                f"Final body: {len(json.dumps(body, ensure_ascii=False, separators=(',',':')))}"
+                f" chars.",
+                file=sys.stderr,
+            )
+
+    # Write output — compact UTF-8 when transport limit is active
     out_path = Path(args.output_json)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+    if args.max_body_chars > 0:
+        out_path.write_text(
+            json.dumps(body, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+    else:
+        out_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
 
-    # Write ReadFile-friendly version (lines ≤1500 chars, ASCII-safe)
+    # Write ReadFile-friendly version (lines ≤1500 chars)
     if args.output_readable:
-        body_ascii = json.dumps(body, ensure_ascii=True)
+        if args.max_body_chars > 0:
+            body_ascii = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
+        else:
+            body_ascii = json.dumps(body, ensure_ascii=True)
         readable_path = Path(args.output_readable)
         readable_path.parent.mkdir(parents=True, exist_ok=True)
         chunk_size = 1500
@@ -782,7 +846,9 @@ def main():
         readable_path.write_text("\n".join(lines), encoding="utf-8")
 
     # Report
-    print(f"OK | type={content_type} | api={args.api} | chars={len(converted):,} | output={out_path}")
+    body_len = len(json.dumps(body, ensure_ascii=True, separators=(',', ':')))
+    reduced_tag = " | transport-reduced" if transport_reduced else ""
+    print(f"OK | type={content_type} | api={args.api} | chars={len(converted):,} | body={body_len:,} | output={out_path}{reduced_tag}")
 
 
 if __name__ == "__main__":
