@@ -685,6 +685,14 @@ def main():
              "reduce (minify to fit — recommended for unattended runs), "
              "split (output multiple JSON files)",
     )
+    parser.add_argument(
+        "--output-readable",
+        default=None,
+        help="Path to write a ReadFile-friendly version of the JSON body. "
+             "Lines are wrapped at ≤1500 chars (ASCII-safe via ensure_ascii=True) "
+             "so the agent's ReadFile tool can read the full body without truncation. "
+             "To reconstruct the original JSON, concatenate all lines (strip newlines).",
+    )
 
     args = parser.parse_args()
 
@@ -763,6 +771,15 @@ def main():
     out_path = Path(args.output_json)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+
+    # Write ReadFile-friendly version (lines ≤1500 chars, ASCII-safe)
+    if args.output_readable:
+        body_ascii = json.dumps(body, ensure_ascii=True)
+        readable_path = Path(args.output_readable)
+        readable_path.parent.mkdir(parents=True, exist_ok=True)
+        chunk_size = 1500
+        lines = [body_ascii[i : i + chunk_size] for i in range(0, len(body_ascii), chunk_size)]
+        readable_path.write_text("\n".join(lines), encoding="utf-8")
 
     # Report
     print(f"OK | type={content_type} | api={args.api} | chars={len(converted):,} | output={out_path}")

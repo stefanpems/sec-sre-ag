@@ -132,18 +132,24 @@ Resolve `format_comment.py` via the [File Resolution cascade](#file-resolution-c
 ```bash
 python3 <resolved_path>/format_comment.py <input_file> \
     --output-json tmp/incident-comment/comment_body.json \
+    --output-readable tmp/incident-comment/comment_body_readable.txt \
     --api sentinel \
     [--type auto] \
     [--title "Optional Title"] \
     [--on-overflow reduce]
 ```
 
+> **Always pass `--output-readable`** — it writes the JSON body split into lines
+> of ≤1500 chars (ASCII-safe), so `ReadFile` can read the full body without
+> truncation. Step 4 relies on this file.
+
 **CLI arguments:**
 
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `input_file` | Yes | — | Path to the content file |
-| `--output-json` | Yes | — | Where to write the JSON body |
+| `--output-json` | Yes | — | Where to write the JSON body (standard single-line JSON) |
+| `--output-readable` | No | None | Where to write a ReadFile-friendly version (lines ≤1500 chars). **Always use this.** |
 | `--api` | No | `sentinel` | `sentinel` or `graph` — target API format |
 | `--type` | No | `auto` | `auto`, `text`, `markdown`, `html` — content type |
 | `--max-chars` | No | 30000 | Character limit |
@@ -171,116 +177,53 @@ For **unattended / autonomous** runs, default to `--on-overflow reduce`.
 
 ### Step 4: Post the Comment
 
-#### Primary: ARM / Sentinel REST API (Python urllib)
+Use `RunAzCliWriteCommands` with `az rest` to PUT the comment via the ARM/Sentinel API.
 
-The ARM/Sentinel API uses the UAMI token (obtained via `RunAzCliReadCommands`),
-which carries Azure RBAC roles. This is the **reliable path** for posting comments.
-
-> ⚠️ **CRITICAL — Platform Constraints (see also `docs/known-issues.md`)**
+> ⚠️ **IMPORTANT — This is the ONLY working method.**
 >
-> - **`az` CLI is NOT available** in `RunInTerminal` — the sandbox shell does not
->   have Azure CLI in PATH. Do NOT call `az` or `az rest` via subprocess/shell.
-> - **`@file` does not work** with `RunAzCliWriteCommands` — the tool environment
->   does not mount the workspace filesystem. `@/path/to/file` sends the literal
->   string; `$(cat ...)` also fails.
-> - **`RunAzCliWriteCommands`** is a **write tool** — it requires user approval in
->   Review mode, adding friction. Avoid it when possible.
+> **Do NOT attempt Python `urllib` from `RunInTerminal`.** The sandbox network
+> cannot make authenticated ARM calls — tokens obtained via `RunAzCliReadCommands`
+> are IP-bound to the platform's network path, not the sandbox's. Python urllib
+> always returns **401 AuthenticationFailed** regardless of token handling.
+> This is a confirmed platform constraint (see `docs/known-issues.md` §1.5).
 >
-> **Solution:** Use the **token-via-file** pattern below. It uses only
-> `RunAzCliReadCommands` (no approval needed) + `RunInTerminal` (Python urllib).
+> **Do NOT attempt `--body @file`** with `RunAzCliWriteCommands` — the tool
+> environment does not mount the workspace filesystem.
 
-**Steps:**
+**Sub-steps:**
 
-1. **Get an ARM token** via `RunAzCliReadCommands` (executes immediately, no approval):
+1. **Read the formatted body** — read `tmp/incident-comment/comment_body_readable.txt`
+   using `ReadFile`. This file was written by `format_comment.py --output-readable`
+   in Step 3, with lines wrapped at ≤1500 chars for ReadFile compatibility.
+   **Concatenate all lines** (remove the line breaks that were added for wrapping)
+   to reconstruct the full JSON body string.
 
-   ```
-   az account get-access-token --resource https://management.azure.com --query accessToken -o tsv --subscription d6116047-3fe1-46f0-aa50-14dd661af84e
-   ```
-
-2. **Save the token to a file** via `RunInTerminal` — copy the token string from
-   the previous step's output into a heredoc:
-
+2. **Generate a comment GUID** — run in `RunInTerminal`:
    ```bash
-   cat > tmp/incident-comment/arm_token.txt << 'TOKENEOF'
-   <PASTE_TOKEN_OUTPUT_HERE>
-   TOKENEOF
+   python3 -c "import uuid; print(uuid.uuid4())"
+   ```
+   This can run **in parallel** with sub-step 1 (`ReadFile`).
+
+3. **Post via `RunAzCliWriteCommands`:**
+
+   ```
+   az rest --method PUT --url "https://management.azure.com/subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.OperationalInsights/workspaces/<WS>/providers/Microsoft.SecurityInsights/incidents/<INCIDENT_GUID>/comments/<COMMENT_GUID>?api-version=2024-03-01" --body <JSON_BODY> --subscription <SUB_ID>
    ```
 
-   > This bridges the two tool environments: `RunAzCliReadCommands` (has Azure auth)
-   > → file on disk → `RunInTerminal` (has filesystem access).
+   Where:
+   - `<SUB_ID>` = subscription ID
+   - `<RG>` = workspace resource group (e.g., `sentinel-us-rg`)
+   - `<WS>` = workspace name (e.g., `sentinel-us`)
+   - `<INCIDENT_GUID>` = `IncidentName` from Step 1 KQL
+   - `<COMMENT_GUID>` = UUID from sub-step 2
+   - `<JSON_BODY>` = full JSON body from sub-step 1 (the concatenated content of
+     `comment_body_readable.txt`)
 
-3. **POST via Python** in `RunInTerminal` — reads both the token and the JSON body
-   from files:
-
-   ```python
-   import json, urllib.request, ssl, uuid
-
-   # Read token saved in sub-step 2
-   with open("tmp/incident-comment/arm_token.txt", "r") as f:
-       token = f.read().strip()
-
-   # Read formatted comment body from Step 3
-   with open("tmp/incident-comment/comment_body.json", "r") as f:
-       body = json.load(f)
-
-   payload = json.dumps(body).encode("utf-8")
-   incident_guid = "<INCIDENT_GUID>"   # IncidentName from Step 1 KQL
-   comment_guid = str(uuid.uuid4())
-
-   url = (
-       f"https://management.azure.com/subscriptions/d6116047-3fe1-46f0-aa50-14dd661af84e"
-       f"/resourceGroups/sentinel-us-rg/providers/Microsoft.OperationalInsights/workspaces/sentinel-us"
-       f"/providers/Microsoft.SecurityInsights/incidents/{incident_guid}/comments/{comment_guid}"
-       f"?api-version=2024-03-01"
-   )
-
-   req = urllib.request.Request(url, data=payload, method="PUT")
-   req.add_header("Authorization", f"Bearer {token}")
-   req.add_header("Content-Type", "application/json")
-
-   try:
-       with urllib.request.urlopen(req, context=ssl.create_default_context()) as resp:
-           result = json.loads(resp.read().decode())
-           print(f"SUCCESS — Comment ID: {result['name']}")
-   except urllib.error.HTTPError as e:
-       error_body = e.read().decode() if e.fp else "no body"
-       print(f"HTTP Error {e.code}: {e.reason}\n{error_body[:500]}")
-   ```
-
-Where:
-- `<INCIDENT_GUID>` is the `IncidentName` field (GUID) from SecurityIncident — resolved in Step 1.
-
-**Required permission:** `Microsoft Sentinel Responder` role on the workspace (**required**).
-
-**Short-body fallback (< 1 KB):** For very short plain-text comments, you can use
-`RunAzCliWriteCommands` with inline JSON body (requires user approval in Review mode):
-
-```
-az rest --method PUT --url "<ARM_URL>" --body "{\"properties\":{\"message\":\"<SHORT_TEXT>\"}}" --subscription d6116047-3fe1-46f0-aa50-14dd661af84e
-```
-
-#### Why not Graph API?
-
-The Graph API endpoint (`POST /security/incidents/{id}/comments`) requires the
-`SecurityIncident.ReadWrite.All` **Application** permission. However, the agent's
-`RunAzCliWriteCommands` tool uses a **delegated user token** for Graph API calls —
-not the UAMI's application token. Delegated tokens do not carry Application-level
-scopes, so the Graph API always returns **403 Forbidden**. The ARM/Sentinel API
-path uses the UAMI token where RBAC roles apply correctly.
-
-#### Why not `RunAzCliWriteCommands` with `az rest`?
-
-Two problems:
-1. **`@file` doesn't work** — the tool environment doesn't mount the workspace
-   filesystem, so `--body @/path/to/file` sends the literal string `@/path/...`
-   instead of reading the file contents.
-2. **Requires user approval** — `RunAzCliWriteCommands` is a write tool that
-   triggers an approval prompt in Review mode. The token-via-file pattern above
-   uses only read tools + `RunInTerminal`, avoiding all approval prompts.
+**Required permission:** `Microsoft Sentinel Responder` role on the workspace.
 
 ### Step 5: Confirm to User
 
-After a successful POST/PUT:
+After a successful PUT:
 
 1. Report: "Comment posted successfully on incident #<ID> (<Title>)."
 2. Show a brief preview (first ~200 chars) of what was posted.
@@ -289,10 +232,7 @@ After a successful POST/PUT:
 
 If the API call fails:
 1. Report the error (status code, message).
-2. If 403 → suggest the required permission assignment:
-   - Graph API: `SecurityIncident.ReadWrite.All` application permission on the UAMI
-   - ARM API: `Microsoft Sentinel Responder` role on the workspace
-3. Offer to retry with the other API.
+2. If 403 → suggest: `Microsoft Sentinel Responder` role on the workspace for the UAMI.
 
 ---
 
@@ -302,14 +242,14 @@ If the API call fails:
 |-------|----------|
 | Incident not found | Verify ID format; try numeric, GUID, and ProviderIncidentId. Use `hours: 720` in KQL. |
 | ARM API 403 | UAMI needs `Microsoft Sentinel Responder` RBAC role on the workspace (**required**). |
-| Graph API 403 | **Expected** — Graph uses delegated tokens that lack Application scopes. Use ARM API instead. |
-| `@file` / `$(cat)` in body | **Not supported** — tool environment doesn't mount workspace FS. Use Python urllib. |
-| `az` not found in `RunInTerminal` | **Expected** — `az` CLI is not in PATH in the sandbox. Use `RunAzCliReadCommands` to get the token, save to file, then use Python urllib. See Step 4. |
-| 401 Unauthorized from Python urllib | Token expired or was not saved correctly. Re-run Step 4 sub-step 1 to get a fresh token. |
+| `@file` / `$(cat)` in body | **Not supported** — tool environment doesn't mount workspace FS. Pass body inline in the `az rest --body` parameter. |
+| Python urllib 401 | **Do NOT use Python urllib.** The sandbox cannot make authenticated ARM calls. Use `RunAzCliWriteCommands` with `az rest`. See Step 4. |
+| `az` not found in `RunInTerminal` | **Expected** — `az` CLI is not in PATH in the sandbox. Use `RunAzCliWriteCommands` tool instead. |
 | Content > 30,000 chars | Re-run with `--on-overflow reduce` (default for unattended) or `--on-overflow split`. |
-| format_comment.py not found | Follow file resolution cascade (codeRefs → tmp → Builder) |
-| Empty input | Reject with error message |
+| format_comment.py not found | Follow file resolution cascade (codeRefs → tmp → Builder). |
+| Empty input | Reject with error message. |
 | Colors unreadable in light/dark mode | `format_comment.py` normalizes colors automatically for dual-theme compatibility. |
+| ReadFile truncates body | Always use `--output-readable` in Step 3. Read the readable file, concatenate lines to reconstruct the full body. |
 
 ---
 
@@ -323,11 +263,12 @@ If the API call fails:
 Step 1: KQL → SecurityIncident | where IncidentNumber == 12345 or ProviderIncidentId == "12345"
         → Found: ProviderIncidentId=12345, IncidentName (GUID) = "abc-def-..."
 Step 2: Content = "The user confirmed this was an authorized test." → save to tmp file
-Step 3: python3 format_comment.py input.txt --output-json body.json --api sentinel
+Step 3: python3 format_comment.py input.txt --output-json body.json
+            --output-readable body_readable.txt --api sentinel
         → type=text, chars=49
-Step 4: Get ARM token → Python urllib PUT .../incidents/abc-def-.../comments/<new-uuid>
-        → body read from body.json, sent via urllib.request
-Step 5: "Comment posted successfully on incident #12345 (Sentinel #NNN)."
+Step 4: ReadFile body_readable.txt → concatenate lines → full JSON body
+        Generate UUID → RunAzCliWriteCommands: az rest --method PUT --url ...  --body <JSON>
+Step 5: "Comment posted successfully on incident #12345."
 ```
 
 ### Example 2: Post Markdown investigation report
@@ -338,9 +279,10 @@ Step 5: "Comment posted successfully on incident #12345 (Sentinel #NNN)."
 Step 1: Incident ID from conversation context (e.g., 98765)
         KQL → ProviderIncidentId == "98765" → GUID = "xyz-..."
 Step 2: Content = previous investigation output (Markdown) → save to tmp file
-Step 3: python3 format_comment.py report.md --output-json body.json --api sentinel
+Step 3: python3 format_comment.py report.md --output-json body.json
+            --output-readable body_readable.txt --api sentinel
         → type=markdown, chars=4200 (converted to HTML)
-Step 4: Get ARM token → Python urllib PUT .../incidents/xyz-.../comments/<new-uuid>
+Step 4: ReadFile body_readable.txt → concatenate → az rest PUT via RunAzCliWriteCommands
 Step 5: "Comment posted on incident #98765. Content converted from Markdown to HTML."
 ```
 
@@ -351,8 +293,9 @@ Step 5: "Comment posted on incident #98765. Content converted from Markdown to H
 ```
 Step 1: KQL → ProviderIncidentId == "54321" → GUID = "pqr-..."
 Step 2: Content = HTML report file → use file path directly
-Step 3: python3 format_comment.py report.html --output-json body.json --api sentinel
+Step 3: python3 format_comment.py report.html --output-json body.json
+            --output-readable body_readable.txt --api sentinel
         → type=html, chars=8500 (adapted for single column)
-Step 4: Get ARM token → Python urllib PUT .../incidents/pqr-.../comments/<new-uuid>
+Step 4: ReadFile body_readable.txt → concatenate → az rest PUT via RunAzCliWriteCommands
 Step 5: "Commento pubblicato sull'incidente #54321. HTML adattato per la colonna singola."
 ```

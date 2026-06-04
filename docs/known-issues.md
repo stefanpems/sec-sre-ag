@@ -56,21 +56,28 @@ After assigning new RBAC roles or API permissions to the UAMI, the sandbox shell
 
 **Affects:** All skills that run Python scripts needing Azure access (MITRE, Sentinel Ingestion, Identity Posture).
 
-### 1.5 `RunAzCliWriteCommands` — `@file` Not Supported and Requires Approval
+### 1.5 Sandbox Cannot Make Authenticated ARM Calls (Python urllib)
 
-The `RunAzCliWriteCommands` tool has two limitations that affect skills needing to POST large JSON bodies:
+**Python `urllib` / `requests` / `curl` from `RunInTerminal` CANNOT reach ARM endpoints.**
+Tokens obtained via `RunAzCliReadCommands` are IP-bound to the platform's network path.
+When used from the sandbox (different network path), ARM returns **401 AuthenticationFailed**.
+This is not a token-handling bug — it is a fundamental platform constraint.
 
-1. **`@file` does not work:** The tool environment does not mount the workspace filesystem. Using `--body @/path/to/file` sends the literal string `@/path/to/file` instead of reading the file contents. Shell substitutions like `$(cat ...)` also fail.
-2. **Requires user approval:** As a write tool, it triggers an approval prompt in Review mode, adding friction to automated workflows.
+**Confirmed behavior:** `RunInTerminal` → Python `urllib.request` → `https://management.azure.com/...` with a valid Bearer token → **401** every time.
 
-**Workaround — Token-via-file pattern:**
-1. Get the token via `RunAzCliReadCommands` (read tool — no approval, immediate)
-2. Save the token to a workspace file via `RunInTerminal` (e.g., `cat > tmp/token.txt << 'EOF' ...`)
-3. Use Python `urllib.request` in `RunInTerminal` to read the token from file and make the HTTP request
+**Workaround — Use `RunAzCliWriteCommands` with inline body:**
+```
+az rest --method PUT --url "<ARM_URL>" --body <JSON_BODY_INLINE> --subscription <SUB_ID>
+```
+- `RunAzCliWriteCommands` uses the platform's auth path (same as `RunAzCliReadCommands`), so ARM accepts the request.
+- `--body @file` does NOT work (tool environment doesn't mount workspace FS). Pass the body inline.
+- This is a write tool — it triggers an approval prompt in Review mode. This is unavoidable for ARM write operations from the agent.
 
-This pattern avoids both `RunAzCliWriteCommands` limitations: no `@file` issue (Python reads files natively) and no approval prompt (only read tools are used).
+**Reading large bodies for inline use:** The `ReadFile` tool truncates lines > 2000 chars.
+For JSON bodies > 2 KB (common with HTML comments), use `format_comment.py --output-readable`
+which writes the body split into lines ≤ 1500 chars. Read with `ReadFile`, concatenate lines.
 
-**Affects:** `incident-comment` (posting comment bodies > 1 KB), any skill that needs to PUT/POST large JSON payloads to ARM.
+**Affects:** `incident-comment`, any skill that needs to PUT/POST JSON payloads to ARM.
 
 ### 1.6 Script Materialization — `read_skill_file` Does Not Write to Disk
 
