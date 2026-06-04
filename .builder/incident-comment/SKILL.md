@@ -281,12 +281,14 @@ If the API call fails:
 **User:** "Add this comment to incident 12345: The user confirmed this was an authorized test."
 
 ```
-Step 1: Incident ID = 12345 (numeric → use directly for Graph API)
+Step 1: KQL → SecurityIncident | where IncidentNumber == 12345 or ProviderIncidentId == "12345"
+        → Found: ProviderIncidentId=12345, IncidentName (GUID) = "abc-def-..."
 Step 2: Content = "The user confirmed this was an authorized test." → save to tmp file
-Step 3: python3 format_comment.py input.txt --output-json body.json --api graph
+Step 3: python3 format_comment.py input.txt --output-json body.json --api sentinel
         → type=text, chars=49
-Step 4: az rest --method POST --url .../incidents/12345/comments --body @body.json
-Step 5: "Comment posted successfully on incident #12345."
+Step 4: Get ARM token → Python urllib PUT .../incidents/abc-def-.../comments/<new-uuid>
+        → body read from body.json, sent via urllib.request
+Step 5: "Comment posted successfully on incident #12345 (Sentinel #NNN)."
 ```
 
 ### Example 2: Post Markdown investigation report
@@ -295,10 +297,11 @@ Step 5: "Comment posted successfully on incident #12345."
 
 ```
 Step 1: Incident ID from conversation context (e.g., 98765)
+        KQL → ProviderIncidentId == "98765" → GUID = "xyz-..."
 Step 2: Content = previous investigation output (Markdown) → save to tmp file
-Step 3: python3 format_comment.py report.md --output-json body.json --api graph
+Step 3: python3 format_comment.py report.md --output-json body.json --api sentinel
         → type=markdown, chars=4200 (converted to HTML)
-Step 4: az rest --method POST --url .../incidents/98765/comments --body @body.json
+Step 4: Get ARM token → Python urllib PUT .../incidents/xyz-.../comments/<new-uuid>
 Step 5: "Comment posted on incident #98765. Content converted from Markdown to HTML."
 ```
 
@@ -307,10 +310,10 @@ Step 5: "Comment posted on incident #98765. Content converted from Markdown to H
 **User:** "Scrivi il report HTML come commento sull'incidente 54321."
 
 ```
-Step 1: Incident ID = 54321
+Step 1: KQL → ProviderIncidentId == "54321" → GUID = "pqr-..."
 Step 2: Content = HTML report file → use file path directly
-Step 3: python3 format_comment.py report.html --output-json body.json --api graph
+Step 3: python3 format_comment.py report.html --output-json body.json --api sentinel
         → type=html, chars=8500 (adapted for single column)
-Step 4: az rest --method POST --url .../incidents/54321/comments --body @body.json
+Step 4: Get ARM token → Python urllib PUT .../incidents/pqr-.../comments/<new-uuid>
 Step 5: "Commento pubblicato sull'incidente #54321. HTML adattato per la colonna singola."
 ```
