@@ -662,8 +662,8 @@ def main():
     parser.add_argument(
         "--api",
         choices=["graph", "sentinel"],
-        default="graph",
-        help="Target API format (default: graph)",
+        default="sentinel",
+        help="Target API format (default: sentinel)",
     )
     parser.add_argument(
         "--max-chars",
@@ -759,10 +759,10 @@ def main():
     else:
         body = build_sentinel_body(converted)
 
-    # Write output
+    # Write output (compact single-line JSON — safe to read and pass inline to az rest)
     out_path = Path(args.output_json)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(body, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
 
     # Report
     print(f"OK | type={content_type} | api={args.api} | chars={len(converted):,} | output={out_path}")
