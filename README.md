@@ -32,6 +32,18 @@ Audits organization-wide identity security posture using Microsoft Graph API and
 | 4 | *What's the distribution of privileged roles across the tenant?* |
 | 5 | *Show me risky users flagged by Entra ID Identity Protection* |
 
+### incident-comment
+
+Posts content as a comment on a Microsoft Sentinel incident. Accepts plain text, Markdown, or HTML. Plain text is posted as-is; Markdown is converted to HTML optimized for the narrow Activities panel; HTML is adapted for single-column display. All input content is preserved in full — no summarization or truncation — unless the user explicitly requests it.
+
+| # | Example prompt |
+|---|---|
+| 1 | *Post this investigation summary as a comment on incident 12345* |
+| 2 | *Scrivi il report come commento sull'incidente 98765* |
+| 3 | *Add a comment to incident 54321 with the analysis results* |
+| 4 | *Aggiungi questo testo come commento all'incidente* |
+| 5 | *Comment on the incident with the HTML report* |
+
 ### incident-investigation
 
 Deep-dives into individual security incidents from Microsoft Defender XDR / Microsoft Sentinel. Retrieves incident metadata, associated alerts, affected assets, and evidence, then orchestrates sub-investigations for involved users, devices, and IoCs. Includes cache management for reusable investigation data across sessions.
@@ -173,6 +185,7 @@ The agent's **User-Assigned Managed Identity (UAMI)** needs read-only **Applicat
 | `IdentityRiskEvent.Read.All` | user-investigation, identity-posture | Requires Entra ID P2 |
 | `AuditLog.Read.All` | user-investigation, identity-posture | |
 | `Reports.Read.All` | identity-posture | |
+| `SecurityIncident.ReadWrite.All` | incident-comment | Write comments on Sentinel incidents via Graph API |
 
 #### WindowsDefenderATP (MDE)
 
@@ -187,7 +200,7 @@ The agent's **User-Assigned Managed Identity (UAMI)** needs read-only **Applicat
 | `AdvancedQuery.Read.All` | computer-investigation, ioc-investigation | Advanced Hunting queries |
 | `Vulnerability.Read.All` | computer-investigation, ioc-investigation | |
 
-All permissions are **read-only** (Application type, not Delegated).
+All permissions above are **read-only** (Application type, not Delegated), except `SecurityIncident.ReadWrite.All` which is **read-write** (required to post incident comments).
 
 #### How to assign
 
@@ -213,6 +226,7 @@ The UAMI also needs Azure RBAC roles for Sentinel workspace access and (optional
 | Role | Scope | Purpose |
 |---|---|---|
 | **Microsoft Sentinel Reader** | Log Analytics workspace | All skills querying Sentinel tables via Azure Monitor MCP (includes Log Analytics Reader) |
+| **Microsoft Sentinel Responder** | Log Analytics workspace | incident-comment skill — post comments via ARM/Sentinel API (fallback; not needed if using Graph API) |
 | **Key Vault Secrets User** | Key Vault resource | Optional — only needed for IP enrichment API tokens |
 
 Assign with Azure CLI:
@@ -222,6 +236,12 @@ Assign with Azure CLI:
 az role assignment create \
   --assignee <UAMI_PRINCIPAL_ID> \
   --role "Microsoft Sentinel Reader" \
+  --scope "/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<WORKSPACE_RG>/providers/Microsoft.OperationalInsights/workspaces/<WORKSPACE_NAME>"
+
+# Sentinel Responder (optional — only if using ARM API for incident comments)
+az role assignment create \
+  --assignee <UAMI_PRINCIPAL_ID> \
+  --role "Microsoft Sentinel Responder" \
   --scope "/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<WORKSPACE_RG>/providers/Microsoft.OperationalInsights/workspaces/<WORKSPACE_NAME>"
 
 # Key Vault Secrets User (optional — only if using IP enrichment)

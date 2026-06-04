@@ -70,7 +70,7 @@ echo ""
 # Each entry: "ResourceSPObjectID|AppRoleId|PermissionName"
 
 PERMISSIONS=(
-  # --- Microsoft Graph (read-only) ---
+  # --- Microsoft Graph (read-only, except SecurityIncident.ReadWrite.All) ---
   "$GRAPH_SP_OBJECT_ID|df021288-bdef-4463-88db-98f22de89214|User.Read.All"
   "$GRAPH_SP_OBJECT_ID|7438b122-aefc-4978-80ed-43db9fcc7571|Device.Read.All"
   "$GRAPH_SP_OBJECT_ID|7ab1d382-f21e-4acd-a863-ba3e13f7da61|Directory.Read.All"
@@ -80,6 +80,7 @@ PERMISSIONS=(
   "$GRAPH_SP_OBJECT_ID|6e472fd1-ad78-48da-a0f0-97ab2c6b769e|IdentityRiskEvent.Read.All"
   "$GRAPH_SP_OBJECT_ID|b0afded3-3588-46d8-8b3d-9842eff778da|AuditLog.Read.All"
   "$GRAPH_SP_OBJECT_ID|230c1aed-a721-4c5d-9cb4-a90514e508ef|Reports.Read.All"
+  "$GRAPH_SP_OBJECT_ID|34bf0e97-1971-4929-b999-9e2442d941d7|SecurityIncident.ReadWrite.All"
 
   # --- WindowsDefenderATP / MDE (read-only) ---
   "$MDE_SP_OBJECT_ID|ea8291d3-4b9a-44b5-bc3a-6cea3026dc79|Machine.Read.All"
