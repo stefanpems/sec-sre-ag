@@ -75,7 +75,7 @@ echo ""
 PERMISSIONS=(
   # --- Microsoft Graph (read-only, except SecurityIncident.ReadWrite.All) ---
   "$GRAPH_SP_OBJECT_ID|df021288-bdef-4463-88db-98f22de89214|User.Read.All"
-  "$GRAPH_SP_OBJECT_ID|7438b122-aefc-4978-80ed-43db9fcc7571|Device.Read.All"
+  "$GRAPH_SP_OBJECT_ID|7438b122-aefc-4978-80ed-43db9fcc7715|Device.Read.All"
   "$GRAPH_SP_OBJECT_ID|7ab1d382-f21e-4acd-a863-ba3e13f7da61|Directory.Read.All"
   "$GRAPH_SP_OBJECT_ID|483bed4a-2ad3-4361-a73b-c83ccdbdc53c|RoleManagement.Read.Directory"
   "$GRAPH_SP_OBJECT_ID|38d9df27-64da-44fd-b7c5-a6fbac20248f|UserAuthenticationMethod.Read.All"
