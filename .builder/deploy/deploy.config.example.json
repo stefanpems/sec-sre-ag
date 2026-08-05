@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy this file to deploy.config.json (gitignored) and fill in your values. Command-line flags (--sub/--rg/--agent/--tenant) and environment variables (SRE_SUB/SRE_RG/SRE_AGENT/SRE_TENANT) override these. Keys starting with '_' are documentation only and are ignored by the tool.",
+  "subscription": "00000000-0000-0000-0000-000000000000",
+  "resourceGroup": "my-sre-agent-rg",
+  "agent": "sec-sre-ag",
+  "tenant": "00000000-0000-0000-0000-000000000000",
+  "_fields": {
+    "subscription": "Azure subscription ID (GUID) that contains the SRE Agent resource.",
+    "resourceGroup": "Name of the resource group holding the Microsoft.App/agents resource.",
+    "agent": "Name of the Azure SRE Agent resource to deploy skills into.",
+    "tenant": "Entra ID tenant ID (GUID) that owns the subscription; used so `az` authenticates against the right tenant (az login --tenant <tenant>)."
+  }
+}
