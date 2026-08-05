@@ -293,7 +293,23 @@ The skills query tables that are populated by **Microsoft Sentinel data connecto
 | Entra ID Identity Protection | `AADRiskyUsers`, `AADUserRiskEvents` | user-investigation, identity-posture |
 | Threat Intelligence — MDTI | `ThreatIntelIndicators` | ioc-investigation |
 
-### 5. Diagnostic Settings (optional)
+### 5. Sign-in Anomaly KQL Job (recommended)
+
+The `user-investigation` and `incident-investigation` skills use the optional
+`Signinlogs_Anomalies_KQL_CL` table to prioritize new sign-in IP addresses,
+device combinations, and geographic novelty against a 90-day baseline. Without
+it, the skills continue with raw `SigninLogs` fallbacks but provide less precise
+anomaly prioritization.
+
+The table is created and populated by an hourly Microsoft Sentinel Data Lake KQL
+job. Follow [`setup/signin-anomalies-kql-job.md`](setup/signin-anomalies-kql-job.md)
+and use the included
+[`setup/signin-anomalies-kql-job.kql`](setup/signin-anomalies-kql-job.kql). The
+Data Lake managed identity (`msg-resources-<guid>`) must have **Log Analytics
+Contributor** on the destination workspace; this identity is separate from the
+agent UAMI configured in sections 1 and 2.
+
+### 6. Diagnostic Settings (optional)
 
 For MCP usage monitoring and audit capabilities, enable these diagnostic settings on the Log Analytics workspace:
 
@@ -304,7 +320,7 @@ For MCP usage monitoring and audit capabilities, enable these diagnostic setting
 
 These are optional — all other skills work without them.
 
-### 6. Known Issues & Memory Seeding
+### 7. Known Issues & Memory Seeding
 
 The skills have been tested extensively and several **platform constraints, KQL pitfalls, and operational patterns** have been documented in [`docs/known-issues.md`](docs/known-issues.md). These include:
 

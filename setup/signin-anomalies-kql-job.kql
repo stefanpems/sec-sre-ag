@@ -1,0 +1,347 @@
+let RecentDays = 1h;
+let BaselineDays = 90d;
+let DomainFilter = "@";
+// ============= INTERACTIVE BASELINES (IPv4 only) =============
+let InteractiveBaselineIPs =
+    SigninLogs
+    | where TimeGenerated between (ago(BaselineDays + RecentDays) .. ago(RecentDays))
+    | where isnotempty(IPAddress) and IPAddress !has ":" and UserPrincipalName contains DomainFilter
+    | extend Country = tostring(Location)
+    | extend LD = parse_json(tostring(LocationDetails))
+    | extend City = tostring(LD.city), State = tostring(LD.state), CountryFull = tostring(LD.countryOrRegion)
+    | extend CountryNorm = iff(isempty(CountryFull), Country, CountryFull)
+    | summarize BaselineIPs = make_set(IPAddress),
+              BaselineCountries = make_set(CountryNorm),
+              BaselineCities = make_set(City),
+              BaselineStates = make_set(State) by UserPrincipalName;
+let InteractiveBaselineDevices =
+    SigninLogs
+    | where TimeGenerated between (ago(BaselineDays + RecentDays) .. ago(RecentDays))
+    | where UserPrincipalName contains DomainFilter
+    | extend DJ = parse_json(tostring(DeviceDetail))
+    | extend RawOS = tostring(DJ.operatingSystem), RawBrowser = tostring(DJ.browser)
+    | extend BrowserFamily = iff(isempty(RawBrowser), "", split(RawBrowser, " ")[0])
+    | extend OS = RawOS
+    | extend Device = strcat(OS, "|", BrowserFamily)
+    | where Device != "|"
+    | extend LD = parse_json(tostring(LocationDetails))
+    | extend Country = tostring(Location), City = tostring(LD.city), State = tostring(LD.state), CountryFull = tostring(LD.countryOrRegion)
+    | extend CountryNorm = iff(isempty(CountryFull), Country, CountryFull)
+    | summarize BaselineDevices = make_set(Device),
+              BaselineOSSet = make_set(OS),
+              BaselineBrowserFamilySet = make_set(BrowserFamily),
+              BaselineRawBrowserSet = make_set(RawBrowser),
+              BaselineCountriesDevices = make_set(CountryNorm),
+              BaselineCitiesDevices = make_set(City),
+              BaselineStatesDevices = make_set(State) by UserPrincipalName;
+// ============= INTERACTIVE RECENT FACTS =============
+let InteractiveRecentIPFacts =
+    SigninLogs
+    | where TimeGenerated > ago(RecentDays)
+    | where isnotempty(IPAddress) and IPAddress !has ":" and UserPrincipalName contains DomainFilter
+    | extend Country = tostring(Location)
+    | extend LD = parse_json(tostring(LocationDetails))
+    | extend City = tostring(LD.city), State = tostring(LD.state), CountryFull = tostring(LD.countryOrRegion)
+    | extend CountryNorm = iff(isempty(CountryFull), Country, CountryFull)
+    | summarize FirstSeenRecent = min(TimeGenerated),
+              RecentIPHits = count(),
+              CountriesRecent = make_set(CountryNorm),
+              CitiesRecent = make_set(City),
+              StatesRecent = make_set(State) by UserPrincipalName, IPAddress;
+let InteractiveRecentIPs =
+    SigninLogs
+    | where TimeGenerated > ago(RecentDays)
+    | where isnotempty(IPAddress) and IPAddress !has ":" and UserPrincipalName contains DomainFilter
+    | summarize RecentIPs = make_set(IPAddress) by UserPrincipalName;
+let InteractiveRecentDeviceFacts =
+    SigninLogs
+    | where TimeGenerated > ago(RecentDays)
+    | where UserPrincipalName contains DomainFilter
+    | extend DJ = parse_json(tostring(DeviceDetail))
+    | extend RawOS = tostring(DJ.operatingSystem), RawBrowser = tostring(DJ.browser)
+    | extend BrowserFamily = iff(isempty(RawBrowser), "", split(RawBrowser, " ")[0])
+    | extend OS = RawOS
+    | extend Device = strcat(OS, "|", BrowserFamily)
+    | where Device != "|"
+    | extend LD = parse_json(tostring(LocationDetails))
+    | extend Country = tostring(Location), City = tostring(LD.city), State = tostring(LD.state), CountryFull = tostring(LD.countryOrRegion)
+    | extend CountryNorm = iff(isempty(CountryFull), Country, CountryFull)
+    | summarize FirstSeenRecent = min(TimeGenerated),
+              RecentDeviceHits = count(),
+              CountriesRecent = make_set(CountryNorm),
+              CitiesRecent = make_set(City),
+              StatesRecent = make_set(State) by UserPrincipalName, Device, OS, BrowserFamily, RawBrowser;
+let InteractiveRecentDevices =
+    SigninLogs
+    | where TimeGenerated > ago(RecentDays)
+    | where UserPrincipalName contains DomainFilter
+    | extend DJ = parse_json(tostring(DeviceDetail))
+    | extend RawOS = tostring(DJ.operatingSystem), RawBrowser = tostring(DJ.browser)
+    | extend BrowserFamily = iff(isempty(RawBrowser), "", split(RawBrowser, " ")[0])
+    | extend OS = RawOS
+    | extend Device = strcat(OS, "|", BrowserFamily)
+    | where Device != "|"
+    | summarize RecentDevices = make_set(Device) by UserPrincipalName;
+// ============= INTERACTIVE ANOMALIES =============
+let InteractiveIPAnomalies =
+    InteractiveRecentIPFacts
+    | join kind=leftouter InteractiveBaselineIPs on UserPrincipalName
+    | join kind=leftouter InteractiveRecentIPs on UserPrincipalName
+    | join kind=leftouter InteractiveBaselineDevices on UserPrincipalName
+    | extend BaselineIPs = coalesce(BaselineIPs, dynamic([])),
+             BaselineCountries = coalesce(BaselineCountries, dynamic([])),
+             BaselineCities = coalesce(BaselineCities, dynamic([])),
+             BaselineStates = coalesce(BaselineStates, dynamic([])),
+             BaselineDevices = coalesce(BaselineDevices, dynamic([])),
+             BaselineOSSet = coalesce(BaselineOSSet, dynamic([])),
+             BaselineBrowserFamilySet = coalesce(BaselineBrowserFamilySet, dynamic([])),
+             BaselineRawBrowserSet = coalesce(BaselineRawBrowserSet, dynamic([])),
+             RecentIPs = coalesce(RecentIPs, dynamic([]))
+    | where array_index_of(BaselineIPs, IPAddress) == -1
+    | extend BaselineSize = array_length(BaselineIPs),
+             RecentSize = array_length(RecentIPs)
+    | extend Country = tostring(CountriesRecent[0]),
+             City = tostring(CitiesRecent[0]),
+             State = tostring(StatesRecent[0])
+    | extend CountryNovelty = array_index_of(BaselineCountries, Country) == -1
+    | extend CityNovelty = iff(isempty(City), false, array_index_of(BaselineCities, City) == -1)
+    | extend StateNovelty = iff(isempty(State), false, array_index_of(BaselineStates, State) == -1)
+    | project DetectedDateTime = now(),
+              UserPrincipalName,
+              AnomalyType = "NewInteractiveIP",
+              Value = IPAddress,
+              OS = "",
+              BrowserFamily = "",
+              RawBrowser = "",
+              Country, City, State,
+              CountryNovelty, CityNovelty, StateNovelty,
+              BaselineCountryCount = array_length(BaselineCountries),
+              BaselineCityCount = array_length(BaselineCities),
+              BaselineStateCount = array_length(BaselineStates),
+              BaselineSize, RecentSize, FirstSeenRecent,
+              ArtifactHits = RecentIPHits,
+              BaselineIPList = BaselineIPs,
+              BaselineCountryList = BaselineCountries,
+              BaselineCityList = BaselineCities,
+              BaselineStateList = BaselineStates,
+              BaselineDeviceList = BaselineDevices,
+              BaselineOSList = BaselineOSSet,
+              BaselineBrowserFamilyList = BaselineBrowserFamilySet,
+              BaselineRawBrowserList = BaselineRawBrowserSet;
+let InteractiveDeviceAnomalies =
+    InteractiveRecentDeviceFacts
+    | join kind=leftouter InteractiveBaselineDevices on UserPrincipalName
+    | join kind=leftouter InteractiveRecentDevices on UserPrincipalName
+    | extend BaselineDevices = coalesce(BaselineDevices, dynamic([])),
+             BaselineOSSet = coalesce(BaselineOSSet, dynamic([])),
+             BaselineBrowserFamilySet = coalesce(BaselineBrowserFamilySet, dynamic([])),
+             BaselineRawBrowserSet = coalesce(BaselineRawBrowserSet, dynamic([])),
+             BaselineCountriesDevices = coalesce(BaselineCountriesDevices, dynamic([])),
+             BaselineCitiesDevices = coalesce(BaselineCitiesDevices, dynamic([])),
+             BaselineStatesDevices = coalesce(BaselineStatesDevices, dynamic([])),
+             RecentDevices = coalesce(RecentDevices, dynamic([]))
+    | where array_index_of(BaselineDevices, Device) == -1
+    | extend BaselineSize = array_length(BaselineDevices),
+             RecentSize = array_length(RecentDevices)
+    | extend Country = tostring(CountriesRecent[0]),
+             City = tostring(CitiesRecent[0]),
+             State = tostring(StatesRecent[0])
+    | extend CountryNovelty = array_index_of(BaselineCountriesDevices, Country) == -1
+    | extend CityNovelty = iff(isempty(City), false, array_index_of(BaselineCitiesDevices, City) == -1)
+    | extend StateNovelty = iff(isempty(State), false, array_index_of(BaselineStatesDevices, State) == -1)
+    | project DetectedDateTime = now(),
+              UserPrincipalName,
+              AnomalyType = "NewInteractiveDeviceCombo",
+              Value = Device, OS, BrowserFamily, RawBrowser,
+              Country, City, State,
+              CountryNovelty, CityNovelty, StateNovelty,
+              BaselineCountryCount = array_length(BaselineCountriesDevices),
+              BaselineCityCount = array_length(BaselineCitiesDevices),
+              BaselineStateCount = array_length(BaselineStatesDevices),
+              BaselineSize, RecentSize, FirstSeenRecent,
+              ArtifactHits = RecentDeviceHits,
+              BaselineDeviceList = BaselineDevices,
+              BaselineOSList = BaselineOSSet,
+              BaselineBrowserFamilyList = BaselineBrowserFamilySet,
+              BaselineRawBrowserList = BaselineRawBrowserSet,
+              BaselineCountryList = BaselineCountriesDevices,
+              BaselineCityList = BaselineCitiesDevices,
+              BaselineStateList = BaselineStatesDevices;
+// ============= NON-INTERACTIVE BASELINES (IPv4 only) =============
+let NonIntBaselineIPs =
+    AADNonInteractiveUserSignInLogs
+    | where TimeGenerated between (ago(BaselineDays + RecentDays) .. ago(RecentDays))
+    | where isnotempty(IPAddress) and IPAddress !has ":" and UserPrincipalName contains DomainFilter
+    | extend Country = tostring(Location)
+    | extend LD = parse_json(tostring(LocationDetails))
+    | extend City = tostring(LD.city), State = tostring(LD.state), CountryFull = tostring(LD.countryOrRegion)
+    | extend CountryNorm = iff(isempty(CountryFull), Country, CountryFull)
+    | summarize BaselineIPs = make_set(IPAddress),
+              BaselineCountries = make_set(CountryNorm),
+              BaselineCities = make_set(City),
+              BaselineStates = make_set(State) by UserPrincipalName;
+let NonIntBaselineDevices =
+    AADNonInteractiveUserSignInLogs
+    | where TimeGenerated between (ago(BaselineDays + RecentDays) .. ago(RecentDays))
+    | where UserPrincipalName contains DomainFilter
+    | extend DJ = parse_json(tostring(DeviceDetail))
+    | extend RawOS = tostring(DJ.operatingSystem), RawBrowser = tostring(DJ.browser)
+    | extend BrowserFamily = iff(isempty(RawBrowser), "", split(RawBrowser, " ")[0])
+    | extend OS = RawOS
+    | extend Device = strcat(OS, "|", BrowserFamily)
+    | where Device != "|"
+    | extend LD = parse_json(tostring(LocationDetails))
+    | extend Country = tostring(Location), City = tostring(LD.city), State = tostring(LD.state), CountryFull = tostring(LD.countryOrRegion)
+    | extend CountryNorm = iff(isempty(CountryFull), Country, CountryFull)
+    | summarize BaselineDevices = make_set(Device),
+              BaselineOSSet = make_set(OS),
+              BaselineBrowserFamilySet = make_set(BrowserFamily),
+              BaselineRawBrowserSet = make_set(RawBrowser),
+              BaselineCountriesDevices = make_set(CountryNorm),
+              BaselineCitiesDevices = make_set(City),
+              BaselineStatesDevices = make_set(State) by UserPrincipalName;
+// ============= NON-INTERACTIVE RECENT FACTS =============
+let NonIntRecentIPFacts =
+    AADNonInteractiveUserSignInLogs
+    | where TimeGenerated > ago(RecentDays)
+    | where isnotempty(IPAddress) and IPAddress !has ":" and UserPrincipalName contains DomainFilter
+    | extend Country = tostring(Location)
+    | extend LD = parse_json(tostring(LocationDetails))
+    | extend City = tostring(LD.city), State = tostring(LD.state), CountryFull = tostring(LD.countryOrRegion)
+    | extend CountryNorm = iff(isempty(CountryFull), Country, CountryFull)
+    | summarize FirstSeenRecent = min(TimeGenerated),
+              RecentIPHits = count(),
+              CountriesRecent = make_set(CountryNorm),
+              CitiesRecent = make_set(City),
+              StatesRecent = make_set(State) by UserPrincipalName, IPAddress;
+let NonIntRecentIPs =
+    AADNonInteractiveUserSignInLogs
+    | where TimeGenerated > ago(RecentDays)
+    | where isnotempty(IPAddress) and IPAddress !has ":" and UserPrincipalName contains DomainFilter
+    | summarize RecentIPs = make_set(IPAddress) by UserPrincipalName;
+let NonIntRecentDeviceFacts =
+    AADNonInteractiveUserSignInLogs
+    | where TimeGenerated > ago(RecentDays)
+    | where UserPrincipalName contains DomainFilter
+    | extend DJ = parse_json(tostring(DeviceDetail))
+    | extend RawOS = tostring(DJ.operatingSystem), RawBrowser = tostring(DJ.browser)
+    | extend BrowserFamily = iff(isempty(RawBrowser), "", split(RawBrowser, " ")[0])
+    | extend OS = RawOS
+    | extend Device = strcat(OS, "|", BrowserFamily)
+    | where Device != "|"
+    | extend LD = parse_json(tostring(LocationDetails))
+    | extend Country = tostring(Location), City = tostring(LD.city), State = tostring(LD.state), CountryFull = tostring(LD.countryOrRegion)
+    | extend CountryNorm = iff(isempty(CountryFull), Country, CountryFull)
+    | summarize FirstSeenRecent = min(TimeGenerated),
+              RecentDeviceHits = count(),
+              CountriesRecent = make_set(CountryNorm),
+              CitiesRecent = make_set(City),
+              StatesRecent = make_set(State) by UserPrincipalName, Device, OS, BrowserFamily, RawBrowser;
+let NonIntRecentDevices =
+    AADNonInteractiveUserSignInLogs
+    | where TimeGenerated > ago(RecentDays)
+    | where UserPrincipalName contains DomainFilter
+    | extend DJ = parse_json(tostring(DeviceDetail))
+    | extend RawOS = tostring(DJ.operatingSystem), RawBrowser = tostring(DJ.browser)
+    | extend BrowserFamily = iff(isempty(RawBrowser), "", split(RawBrowser, " ")[0])
+    | extend OS = RawOS
+    | extend Device = strcat(OS, "|", BrowserFamily)
+    | where Device != "|"
+    | summarize RecentDevices = make_set(Device) by UserPrincipalName;
+// ============= NON-INTERACTIVE ANOMALIES =============
+let NonIntIPAnomalies =
+    NonIntRecentIPFacts
+    | join kind=leftouter NonIntBaselineIPs on UserPrincipalName
+    | join kind=leftouter NonIntRecentIPs on UserPrincipalName
+    | join kind=leftouter NonIntBaselineDevices on UserPrincipalName
+    | extend BaselineIPs = coalesce(BaselineIPs, dynamic([])),
+             BaselineCountries = coalesce(BaselineCountries, dynamic([])),
+             BaselineCities = coalesce(BaselineCities, dynamic([])),
+             BaselineStates = coalesce(BaselineStates, dynamic([])),
+             BaselineDevices = coalesce(BaselineDevices, dynamic([])),
+             BaselineOSSet = coalesce(BaselineOSSet, dynamic([])),
+             BaselineBrowserFamilySet = coalesce(BaselineBrowserFamilySet, dynamic([])),
+             BaselineRawBrowserSet = coalesce(BaselineRawBrowserSet, dynamic([])),
+             RecentIPs = coalesce(RecentIPs, dynamic([]))
+    | where array_index_of(BaselineIPs, IPAddress) == -1
+    | extend BaselineSize = array_length(BaselineIPs),
+             RecentSize = array_length(RecentIPs)
+    | extend Country = tostring(CountriesRecent[0]),
+             City = tostring(CitiesRecent[0]),
+             State = tostring(StatesRecent[0])
+    | extend CountryNovelty = array_index_of(BaselineCountries, Country) == -1
+    | extend CityNovelty = iff(isempty(City), false, array_index_of(BaselineCities, City) == -1)
+    | extend StateNovelty = iff(isempty(State), false, array_index_of(BaselineStates, State) == -1)
+    | project DetectedDateTime = now(),
+              UserPrincipalName,
+              AnomalyType = "NewNonInteractiveIP",
+              Value = IPAddress,
+              OS = "", BrowserFamily = "", RawBrowser = "",
+              Country, City, State,
+              CountryNovelty, CityNovelty, StateNovelty,
+              BaselineCountryCount = array_length(BaselineCountries),
+              BaselineCityCount = array_length(BaselineCities),
+              BaselineStateCount = array_length(BaselineStates),
+              BaselineSize, RecentSize, FirstSeenRecent,
+              ArtifactHits = RecentIPHits,
+              BaselineIPList = BaselineIPs,
+              BaselineCountryList = BaselineCountries,
+              BaselineCityList = BaselineCities,
+              BaselineStateList = BaselineStates,
+              BaselineDeviceList = BaselineDevices,
+              BaselineOSList = BaselineOSSet,
+              BaselineBrowserFamilyList = BaselineBrowserFamilySet,
+              BaselineRawBrowserList = BaselineRawBrowserSet;
+let NonIntDeviceAnomalies =
+    NonIntRecentDeviceFacts
+    | join kind=leftouter NonIntBaselineDevices on UserPrincipalName
+    | join kind=leftouter NonIntRecentDevices on UserPrincipalName
+    | extend BaselineDevices = coalesce(BaselineDevices, dynamic([])),
+             BaselineOSSet = coalesce(BaselineOSSet, dynamic([])),
+             BaselineBrowserFamilySet = coalesce(BaselineBrowserFamilySet, dynamic([])),
+             BaselineRawBrowserSet = coalesce(BaselineRawBrowserSet, dynamic([])),
+             BaselineCountriesDevices = coalesce(BaselineCountriesDevices, dynamic([])),
+             BaselineCitiesDevices = coalesce(BaselineCitiesDevices, dynamic([])),
+             BaselineStatesDevices = coalesce(BaselineStatesDevices, dynamic([])),
+             RecentDevices = coalesce(RecentDevices, dynamic([]))
+    | where array_index_of(BaselineDevices, Device) == -1
+    | extend BaselineSize = array_length(BaselineDevices),
+             RecentSize = array_length(RecentDevices)
+    | extend Country = tostring(CountriesRecent[0]),
+             City = tostring(CitiesRecent[0]),
+             State = tostring(StatesRecent[0])
+    | extend CountryNovelty = array_index_of(BaselineCountriesDevices, Country) == -1
+    | extend CityNovelty = iff(isempty(City), false, array_index_of(BaselineCitiesDevices, City) == -1)
+    | extend StateNovelty = iff(isempty(State), false, array_index_of(BaselineStatesDevices, State) == -1)
+    | project DetectedDateTime = now(),
+              UserPrincipalName,
+              AnomalyType = "NewNonInteractiveDeviceCombo",
+              Value = Device, OS, BrowserFamily, RawBrowser,
+              Country, City, State,
+              CountryNovelty, CityNovelty, StateNovelty,
+              BaselineCountryCount = array_length(BaselineCountriesDevices),
+              BaselineCityCount = array_length(BaselineCitiesDevices),
+              BaselineStateCount = array_length(BaselineStatesDevices),
+              BaselineSize, RecentSize, FirstSeenRecent,
+              ArtifactHits = RecentDeviceHits,
+              BaselineDeviceList = BaselineDevices,
+              BaselineOSList = BaselineOSSet,
+              BaselineBrowserFamilyList = BaselineBrowserFamilySet,
+              BaselineRawBrowserList = BaselineRawBrowserSet,
+              BaselineCountryList = BaselineCountriesDevices,
+              BaselineCityList = BaselineCitiesDevices,
+              BaselineStateList = BaselineStatesDevices;
+// ============= UNION & SEVERITY =============
+InteractiveIPAnomalies
+| union InteractiveDeviceAnomalies
+| union NonIntIPAnomalies
+| union NonIntDeviceAnomalies
+| extend Severity = case(
+    BaselineSize < 3, "Informational",
+    CountryNovelty and CityNovelty and ArtifactHits >= 20, "High",
+    ArtifactHits >= 10, "Medium",
+    (CountryNovelty or CityNovelty or StateNovelty), "Medium",
+    ArtifactHits >= 5, "Low",
+    "Informational"
+)
+| order by DetectedDateTime desc
