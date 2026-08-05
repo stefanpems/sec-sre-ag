@@ -8,6 +8,6 @@
     "subscription": "Azure subscription ID (GUID) that contains the SRE Agent resource.",
     "resourceGroup": "Name of the resource group holding the Microsoft.App/agents resource.",
     "agent": "Name of the Azure SRE Agent resource to deploy skills into.",
-    "tenant": "Entra ID tenant ID (GUID) that owns the subscription; used so `az` authenticates against the right tenant (az login --tenant <tenant>)."
+    "tenant": "OPTIONAL / informational only. Reminds you which Entra tenant to `az login` into; the tool derives the token's tenant from the subscription, so this value is not required."
   }
 }

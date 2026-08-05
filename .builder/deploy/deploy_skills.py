@@ -179,10 +179,14 @@ def load_local_skills(only: set[str] | None = None) -> list[Skill]:
 # --------------------------------------------------------------------------- #
 # Auth + HTTP
 # --------------------------------------------------------------------------- #
-def get_token(resource: str) -> str:
+def get_token(resource: str, subscription: str | None = None) -> str:
     az = "az.cmd" if os.name == "nt" else "az"
     cmd = [az, "account", "get-access-token", "--resource", resource,
            "--query", "accessToken", "-o", "tsv"]
+    if subscription:
+        # Minting the token for the target subscription selects its home tenant,
+        # so the deploy works regardless of the currently active `az` account.
+        cmd += ["--subscription", subscription]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except FileNotFoundError:
@@ -241,7 +245,7 @@ class Target:
 
 def resolve_agent_endpoint(target: "Target") -> str:
     """Return the per-agent data-plane endpoint (properties.agentEndpoint)."""
-    token = get_token(ARM_RESOURCE)
+    token = get_token(ARM_RESOURCE, target.sub)
     status, body = http("GET", target.agent_arm_url(), token)
     if status != 200 or not isinstance(body, dict):
         sys.exit(f"ERROR: could not read agent (HTTP {status}): {json.dumps(body)[:300]}")
@@ -295,16 +299,16 @@ def skill_dataplane_url(endpoint: str, name: str) -> str:
     return f"{endpoint}{SKILLS_DATAPLANE_PATH}/{name}"
 
 
-def dataplane_list_skills(endpoint: str) -> list[dict]:
-    token = get_token(DATAPLANE_RESOURCE)
+def dataplane_list_skills(endpoint: str, subscription: str | None = None) -> list[dict]:
+    token = get_token(DATAPLANE_RESOURCE, subscription)
     status, body = http("GET", endpoint + SKILLS_DATAPLANE_PATH, token)
     if status != 200 or not isinstance(body, dict):
         sys.exit(f"ERROR: list skills failed (HTTP {status}): {json.dumps(body)[:300]}")
     return body.get("value") or []
 
 
-def dataplane_delete_skill(endpoint: str, name: str) -> tuple[int, Any]:
-    token = get_token(DATAPLANE_RESOURCE)
+def dataplane_delete_skill(endpoint: str, name: str, subscription: str | None = None) -> tuple[int, Any]:
+    token = get_token(DATAPLANE_RESOURCE, subscription)
     return http("DELETE", f"{endpoint}{SKILLS_DATAPLANE_PATH}/{name}", token)
 
 
@@ -355,7 +359,7 @@ def cmd_build(args) -> int:
 def cmd_list(args) -> int:
     target = resolve_target(args)
     endpoint = resolve_agent_endpoint(target)
-    items = dataplane_list_skills(endpoint)
+    items = dataplane_list_skills(endpoint, target.sub)
     print(f"{len(items)} skill(s) on agent '{target.agent}':")
     for it in items:
         name = it.get("name", "?")
@@ -369,7 +373,7 @@ def cmd_list(args) -> int:
 def cmd_discover(args) -> int:
     target = resolve_target(args)
     endpoint = resolve_agent_endpoint(target)
-    items = dataplane_list_skills(endpoint)
+    items = dataplane_list_skills(endpoint, target.sub)
     if not items:
         print("No existing skills on this agent.")
         return 0
@@ -401,7 +405,7 @@ def cmd_deploy(args) -> int:
         return 0
 
     endpoint = resolve_agent_endpoint(target)
-    token = get_token(DATAPLANE_RESOURCE)
+    token = get_token(DATAPLANE_RESOURCE, target.sub)
     ok, fail = 0, 0
     for s in skills:
         body = build_dataplane_body(s)
@@ -424,7 +428,7 @@ def cmd_delete(args) -> int:
         sys.exit("ERROR: delete requires --skills <name[,name...]>")
     endpoint = resolve_agent_endpoint(target)
     for name in sorted(names):
-        status, body = dataplane_delete_skill(endpoint, name)
+        status, body = dataplane_delete_skill(endpoint, name, target.sub)
         if status in (200, 202, 204):
             print(f"  DELETED {name} (HTTP {status})")
         else:
