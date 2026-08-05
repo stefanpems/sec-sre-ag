@@ -129,7 +129,7 @@ for ENTRY in "${PERMISSIONS[@]}"; do
   # Skip if already assigned
   if echo "$EXISTING" | grep -q "$ROLE_ID"; then
     echo "  SKIP  $ROLE_NAME (already assigned)"
-    ((SKIPPED++))
+    ((++SKIPPED))
     continue
   fi
 
@@ -142,10 +142,10 @@ for ENTRY in "${PERMISSIONS[@]}"; do
     --headers "Content-Type=application/json" \
     -o none 2>/dev/null; then
     echo "  OK    $ROLE_NAME"
-    ((ASSIGNED++))
+    ((++ASSIGNED))
   else
     echo "  FAIL  $ROLE_NAME"
-    ((FAILED++))
+    ((++FAILED))
   fi
 done
 

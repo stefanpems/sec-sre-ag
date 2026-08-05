@@ -71,7 +71,7 @@ assign_role() {
        --scope "$SCOPE" \
        --query '[0].id' -o tsv 2>/dev/null | grep -q .; then
     echo "  SKIP  $ROLE (already assigned)"
-    ((SKIPPED++))
+    ((++SKIPPED))
   else
     if az role assignment create \
          --assignee "$UAMI_CLIENT_ID" \
@@ -79,10 +79,10 @@ assign_role() {
          --scope "$SCOPE" \
          -o none 2>/dev/null; then
       echo "  OK    $ROLE"
-      ((ASSIGNED++))
+      ((++ASSIGNED))
     else
       echo "  FAIL  $ROLE"
-      ((FAILED++))
+      ((++FAILED))
     fi
   fi
 }

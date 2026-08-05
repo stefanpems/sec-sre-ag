@@ -168,6 +168,24 @@ Performs comprehensive security investigations on Entra ID user accounts. Collec
 
 ## Setup
 
+### Discover the required IDs
+
+Run [`setup/discover-setup-ids.sh`](setup/discover-setup-ids.sh) from **Azure Cloud Shell (Bash)** before assigning permissions. The script uses read-only Azure CLI commands to list the values required by the assignment scripts:
+
+- UAMI **Object ID** for `assign-permissions.sh`
+- UAMI **Client ID** for `assign-azure-roles.sh`
+- Microsoft Sentinel workspace **Resource ID**
+- Key Vault **Resource ID**, when IP enrichment is enabled
+
+```bash
+git clone https://github.com/stefanpems/sec-sre-ag.git
+cd sec-sre-ag/setup
+chmod +x discover-setup-ids.sh
+./discover-setup-ids.sh [SUBSCRIPTION_ID]
+```
+
+The subscription argument is optional. When omitted, the script reads the active Azure CLI subscription. It does not call `az account set`; the selected subscription is passed explicitly to every resource query. If exactly one UAMI and one Sentinel workspace are found, the output includes ready-to-run commands for both assignment scripts. Otherwise, select the intended resources from the displayed list.
+
 ### 1. API Permissions (Entra ID — Graph + MDE)
 
 The agent's **User-Assigned Managed Identity (UAMI)** needs **Application permissions** on Microsoft Graph and WindowsDefenderATP APIs.
