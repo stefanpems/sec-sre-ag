@@ -21,6 +21,7 @@ required for customer-owned Azure SRE Agent deployments.
 | Section | What it contains |
 |---|---|
 | [Skills](#skills) | Supported security operations use cases, capabilities, and example prompts |
+| [Prerequisites](#prerequisites) | Required tooling, subscriptions, licenses, accounts, network access, and minimum administrative roles |
 | [Setup](#setup) | Customer repository, agent creation, connectors, skill deployment, IDs, permissions, RBAC, and data prerequisites |
 | [Validation Tests](#validation-tests) | Basic connector checks and smoke tests for every deployed skill |
 | [Sandbox Architecture & Script Retrieval](#sandbox-architecture--script-retrieval) | Code Access, file resolution, script execution, and runtime configuration behavior |
@@ -186,6 +187,92 @@ Performs comprehensive security investigations on Entra ID user accounts. Collec
 | 3 | *What locations and IPs has this user signed in from in the last 30 days?* |
 | 4 | *Enrich user IP addresses with geolocation and threat intelligence* |
 | 5 | *Generate a complete forensic report for this potentially compromised account* |
+
+---
+
+## Prerequisites
+
+Complete these prerequisites before starting Setup. One person does not need to
+hold every role: a GitHub administrator, Entra administrator, Azure platform
+administrator, and Microsoft 365 service owner can perform their respective
+steps. Use time-bound elevation and the narrowest practical scope.
+
+### Workstation and tooling
+
+- A GitHub account that can create a repository in the target organization,
+   grant the required repository access, and clone the repository to the local
+   computer. Install Git and confirm that outbound HTTPS to `github.com` is
+   allowed.
+- Python **3.9 or later** for `.builder/deploy/deploy_skills.py` and local script
+   validation. The deployer uses the standard library; PyYAML is optional. The
+   `incident-statistics` skill uses `incident-statistics/generate_charts.py`,
+   which requires `matplotlib` and `numpy`, while IP enrichment with
+   `shared/enrich_ips.py` requires `requests`. These packages are not required
+   merely to deploy the skills.
+- Azure CLI, authenticated to every tenant that contains a target subscription:
+   use `az login` or `az login --tenant <TENANT_ID>` for cross-tenant setup.
+- A modern browser that permits OAuth pop-ups from `sre.azure.com`. Node.js/npm
+   is needed only when running an `npx`-based MCP server locally; the configured
+   `kql-search-mcp` connector itself invokes `npx` in its connector runtime.
+
+### Azure platform and billing
+
+- An active Azure subscription with sufficient credit or billing capacity for
+   Azure SRE Agent, its supporting Application Insights and Log Analytics
+   resources, and the customer's Sentinel ingestion and retention. SRE Agent is
+   usage-billed in Azure Agent Units (AAUs): always-on charges continue while an
+   agent exists, and active-flow charges accrue while it processes work. Review
+   [Pricing and billing](https://learn.microsoft.com/azure/sre-agent/pricing-billing)
+   and set the monthly AAU allocation before production use.
+- The `Microsoft.App` resource provider registered, a resource group for the
+   agent, and permission to deploy in a currently supported SRE Agent region.
+   Confirm current regions in the portal rather than relying on a static list.
+- Network access from the browser and administrative workstation to
+   `sre.azure.com`, `*.azuresre.ai`, Azure Resource Manager, Microsoft Entra ID,
+   Microsoft Graph, Azure Monitor/Log Analytics endpoints, GitHub, and the OAuth
+   endpoints used by Teams and Exchange Online.
+- A running Microsoft Sentinel Log Analytics workspace containing the data that
+   the selected skills need. Required Sentinel, Defender, Entra, Microsoft 365,
+   and Identity Protection licenses must already be assigned. In particular,
+   Identity Protection risk data requires Entra ID P2, endpoint investigations
+   require Defender for Endpoint, and notification tests require licensed Teams
+   and Exchange Online accounts.
+
+### Minimum administrative access
+
+The following table separates Azure RBAC, SRE Agent roles, Entra roles, and
+external-service permissions. These controls are independent and are sometimes
+required together.
+
+| Setup activity | Minimum access |
+|---|---|
+| Create the SRE Agent and supporting resources | **Contributor** on the target subscription to register `Microsoft.App` and create resources, plus **Role Based Access Control Administrator** or **User Access Administrator** on each scope where the wizard assigns roles. If the provider is already registered and the resource group already exists, Contributor can instead be scoped to that resource group. **Owner** on the subscription satisfies both requirements. |
+| Select managed resource groups or change agent Azure permissions | **SRE Agent Administrator** on the agent plus **Owner** or **User Access Administrator** on each managed resource group. Start the agent with Reader-level access. |
+| Configure Builder, Code Access, connectors, and skills | **SRE Agent Administrator** on the agent resource. This is the documented role with full connector and configuration access. If a portal version exposes **SRE Agent Author**, use it only for operations that explicitly accept it; Administrator covers this repository's complete setup and validation flow. |
+| Deploy skills with `.builder/deploy/deploy_skills.py` | **Reader** on the agent resource for ARM discovery plus **SRE Agent Administrator** (or an explicitly supported Author role) for data-plane skill changes. |
+| Create Outlook or Teams managed connections | SRE Agent access above, a managed identity, and `Microsoft.Web/connections/write` plus `Microsoft.Authorization/roleAssignments/write` on the agent resource group. A least-privilege built-in combination is **Contributor** plus **Role Based Access Control Administrator** or **User Access Administrator**; **Owner** also works. |
+| Create the Log Analytics connector | **SRE Agent Administrator** on the agent and **Owner** or **User Access Administrator** on the target workspace/resource group so the wizard can assign Log Analytics roles to the managed identity. Resource Graph read access is needed for automatic workspace discovery. |
+| Assign Graph and Defender API Application permissions | **Privileged Role Administrator** or **Global Administrator** in the target Entra tenant. The role holder runs `setup/assign-permissions.sh`; Azure subscription RBAC alone is insufficient. |
+| Assign Sentinel and Key Vault RBAC with `setup/assign-azure-roles.sh` | **Role Based Access Control Administrator**, **User Access Administrator**, **Owner**, or a custom role containing `Microsoft.Authorization/roleAssignments/write` at the target workspace/Key Vault scope. |
+| Configure the optional Sentinel Data Lake KQL job | Permission to create/manage the KQL job and assign **Log Analytics Contributor** to the separate Data Lake managed identity on the destination workspace. |
+
+### External accounts and test assets
+
+- **GitHub:** organization permission to create the customer repository and
+   authorize OAuth access to it. For private repositories, the credential must
+   have Metadata and Contents read access. GitHub MCP write workflows additionally
+   need only the selected Contents and Pull requests write permissions. GitHub
+   Enterprise Cloud (`<tenant>.ghe.com`) requires organization/repository admin
+   access to create and install a BYO GitHub App, plus a Key Vault and an agent
+   identity with **Key Vault Secrets User** on that vault.
+- **Exchange Online:** a Microsoft 365 account with an active mailbox and
+   permission to send from the identity used during Outlook OAuth consent.
+- **Microsoft Teams:** a licensed account that can access and post to the target
+   team, channel, or chat; obtain a channel URL when using the legacy connector.
+- **Validation:** nonproduction recipients and representative test resources,
+   including a mailbox, Teams destination, Sentinel incident, Entra user, and
+   Defender-onboarded device. The tester must be allowed to read those resources
+   and perform the specific write tests described under Validation Tests.
 
 ---
 
