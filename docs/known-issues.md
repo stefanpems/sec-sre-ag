@@ -48,9 +48,17 @@ az rest --method GET \
 
 ### 1.4 Managed Identity Token Caching (Up to 24h)
 
-After assigning new RBAC roles or API permissions to the UAMI, the sandbox shell's Managed Identity token (served by Azure IMDS) may retain the **old token without the new permissions** for up to 24 hours. This means:
-- `RunAzCliReadCommands` tool → sees new permissions **immediately** (different auth path)
-- `RunInTerminal` with `az` or Python scripts using `DefaultAzureCredential` → may **not see** new permissions for hours
+After assigning new RBAC roles or API permissions to the UAMI, a previously
+issued Managed Identity token may retain the **old roles claim** until a new
+token is issued. The sandbox shell's IMDS token can remain stale for up to 24
+hours. `RunAzCliReadCommands` uses a different authentication path and usually
+refreshes sooner, but it can still retain session-level authentication state;
+do not interpret a 403 as proof that the app-role assignment is absent.
+
+Start a new agent session and retry one minimal request. If it still fails,
+verify that the native read tool is using the same managed identity whose
+Object ID holds the app-role assignment. A connector-selected UAMI and the
+identity used by a native agent tool are not necessarily the same identity.
 
 **Workaround — the Prefetch pattern:** see [§3.1 Prefetch Workflow](#31-prefetch-workflow-for-mi-token-caching).
 
