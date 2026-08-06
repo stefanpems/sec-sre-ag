@@ -135,6 +135,8 @@ SecurityIncident
     Techniques = make_set(Technique)
 | extend Techniques = set_difference(Techniques, dynamic([""]))
 | extend Tactics = set_difference(Tactics, dynamic([""]))
+// Safety cap — remove only if user explicitly requests all rows
+| take 200
 ```
 
 **Purpose:** 7-day closed incident summary: classification breakdown (TP/BP/FP/Undetermined), severity distribution, aggregated MITRE tactics and technique IDs. Uses `CreatedTime` (not `TimeGenerated`) to match portal "created in last 7 days" semantics. Filters `array_length(AlertIds) > 0` to exclude phantom incidents synced from XDR with empty AlertIds.
@@ -465,6 +467,8 @@ EmailEvents
     PhishDelivered = countif(ThreatTypes has "Phish" and DeliveryAction == "Delivered"),
     DistinctSenders = dcount(SenderFromAddress),
     DistinctRecipients = dcount(RecipientEmailAddress)
+// Safety cap — remove only if user explicitly requests all rows
+| take 200
 ```
 
 **Purpose:** Instant email posture briefing. Key escalation metric: `PhishDelivered`.
@@ -522,6 +526,8 @@ CloudAppEvents
     LatestTime = max(TimeGenerated)
     by Category
 | order by Count desc
+// Safety cap — remove only if user explicitly requests all rows
+| take 200
 ```
 
 **Purpose:** Three-category view: Exchange rule changes, Conditional Access mutations, MCAS compromised sign-ins. `CompromisedSignIn` is an MCAS signal independent from Q3's Identity Protection. Actor resolution falls back to `RawEventData.UserId` when `AccountDisplayName` is empty.
@@ -572,6 +578,8 @@ PrivOps
     LatestTime = max(TimeGenerated)
     by Category
 | order by Count desc
+// Safety cap — remove only if user explicitly requests all rows
+| take 200
 ```
 
 **Purpose:** Category-aggregated privileged operations: role assignments, PIM, credentials, consent, CA, password, MFA registration, app registration, ownership.

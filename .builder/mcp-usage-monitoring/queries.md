@@ -109,14 +109,14 @@ MicrosoftGraphActivityLogs
     AvgDurationMs = round(avg(DurationMs), 0),
     OffHoursCalls = countif(IsOffHours),
     Methods = make_set(RequestMethod, 5),
-    Users = make_set(UserId, 10),
+    Users = make_set(UserId, 5),
     LastUsed = max(TimeGenerated)
     by Endpoint, IsSensitive
 | extend 
     ErrorRate = round(100.0 * ErrorCount / CallCount, 1),
     OffHoursPct = round(100.0 * OffHoursCalls / CallCount, 1)
 | order by CallCount desc
-| take 50
+| take 15
 ```
 
 ---
@@ -137,6 +137,7 @@ SigninLogs
     OS = tostring(parse_json(DeviceDetail).operatingSystem),
     Country = tostring(parse_json(LocationDetails).countryOrRegion)
 | order by TimeGenerated desc
+| take 15
 ```
 
 ---
@@ -153,7 +154,7 @@ SigninLogs
 | summarize 
     SignInCount = count(),
     DistinctUsers = dcount(UserPrincipalName),
-    Users = make_set(UserPrincipalName, 10),
+    Users = make_set(UserPrincipalName, 5),
     LastSeen = max(TimeGenerated)
     by AppDisplayName, AppId, ClientAppUsed
 | order by SignInCount desc
@@ -175,12 +176,12 @@ MicrosoftGraphActivityLogs
 | summarize 
     Calls = count(),
     DistinctUsers = dcount(UserId),
-    Users = make_set(UserId, 10),
+    Users = make_set(UserId, 5),
     FirstSeen = min(TimeGenerated),
     LastSeen = max(TimeGenerated)
     by RequestMethod, Endpoint
 | order by Calls desc
-| take 25
+| take 15
 ```
 
 ---
@@ -222,9 +223,9 @@ union signinlogs_interactive, signinlogs_noninteractive
 | summarize
     SignIns = count(),
     DistinctUsers = dcount(UserPrincipalName),
-    Users = make_set(UserPrincipalName, 10),
-    IPs = make_set(IPAddress, 10),
-    Countries = make_set(Country, 10),
+    Users = make_set(UserPrincipalName, 5),
+    IPs = make_set(IPAddress, 5),
+    Countries = make_set(Country, 5),
     LastSeen = max(TimeGenerated)
     by AppDisplayName, SignInType, ResourceDisplayName
 | order by SignIns desc
@@ -353,14 +354,14 @@ CloudAppEvents
     SuccessCount = countif(IsSuccess),
     FailureCount = countif(not(IsSuccess)),
     DistinctTools = dcount(ToolName),
-    Tools = make_set(ToolName, 20),
+    Tools = make_set(ToolName, 10),
     DistinctTables = dcount(TablesRead),
-    Tables = make_set(TablesRead, 30),
+    Tables = make_set(TablesRead, 10),
     Workspaces = make_set(DatabasesRead, 5),
     AvgDurationSec = round(avg(ExecutionDuration), 2),
     TotalRowsReturned = sum(TotalRows),
     DistinctUsers = dcount(UserId_raw),
-    Users = make_set(UserId_raw, 10),
+    Users = make_set(UserId_raw, 5),
     KQLQueryCount = countif(HasKQLQuery),
     FirstSeen = min(TimeGenerated),
     LastSeen = max(TimeGenerated)
@@ -405,9 +406,9 @@ CloudAppEvents
     FailureCount = countif(not(IsSuccess)),
     AvgDurationSec = round(avg(ExecutionDuration), 2),
     MaxDurationSec = round(max(ExecutionDuration), 2),
-    TablesAccessed = make_set(TablesRead, 20),
+    TablesAccessed = make_set(TablesRead, 10),
     DistinctUsers = dcount(UserId_raw),
-    Users = make_set(UserId_raw, 10),
+    Users = make_set(UserId_raw, 5),
     FirstSeen = min(TimeGenerated),
     LastSeen = max(TimeGenerated)
     by GroupKey, Source
@@ -456,7 +457,7 @@ CloudAppEvents
     ErrorCount = count(),
     Tools = make_set(ToolName, 10),
     Tables = make_set(TablesRead, 10),
-    Users = make_set(UserId_raw, 10),
+    Users = make_set(UserId_raw, 5),
     SampleErrors = make_set(substring(FailureReason, 0, 150), 5),
     FirstSeen = min(TimeGenerated),
     LastSeen = max(TimeGenerated)
@@ -466,7 +467,42 @@ CloudAppEvents
 
 ---
 
-## Query 13: Azure MCP Server — Authentication Events (SigninLogs)
+## Query 13: Azure MCP Server — Authentication Summary (Default)
+
+**Purpose:** Provide a bounded authentication summary for Azure MCP Server and Azure CLI activity.
+
+```kql
+// Azure MCP Server / Azure CLI authentication — aggregated summary (default)
+// Use Q13-detail for raw event drill-down only when anomalies are detected
+let azure_mcp_appid = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
+let signinlogs_interactive = SigninLogs
+| where TimeGenerated >= ago(30d)
+| where AppId == azure_mcp_appid
+| extend SignInType = "Interactive";
+let signinlogs_noninteractive = AADNonInteractiveUserSignInLogs
+| where TimeGenerated >= ago(30d)
+| where AppId == azure_mcp_appid
+| extend SignInType = "Non-Interactive";
+union signinlogs_interactive, signinlogs_noninteractive
+| summarize
+    SignIns = count(),
+    Errors = countif(tostring(ResultType) != "0" and tostring(ResultType) != ""),
+    DistinctUsers = dcount(UserPrincipalName),
+    Users = make_set(UserPrincipalName, 5),
+    Resources = make_set(ResourceDisplayName, 5),
+    IPs = make_set(IPAddress, 5),
+    Countries = make_set(tostring(parse_json(LocationDetails).countryOrRegion), 5),
+    LastSeen = max(TimeGenerated)
+    by AppDisplayName, SignInType
+| extend ErrorRate = round(100.0 * Errors / SignIns, 1)
+| order by SignIns desc
+```
+
+---
+
+## Query 13-detail: Azure MCP Server — Authentication Events — Raw Drill-Down
+
+> **Drill-down only.** Use this query when Q13 reveals anomalies (high error rate, unknown users, unexpected countries). Not for default execution — returns raw rows that can cause token spikes in large tenants.
 
 **Purpose:** Detect Azure MCP Server authentication events via Azure CLI AppId.
 **⚠️ SHARED APPID:** `04b07795` is shared with manual Azure CLI. This query returns ALL Azure CLI sign-ins.
@@ -475,7 +511,7 @@ CloudAppEvents
 // Azure MCP Server / Azure CLI authentication events
 let azure_mcp_appid = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
 let signinlogs_interactive = SigninLogs
-| where TimeGenerated >= ago(90d)
+| where TimeGenerated >= ago(30d)
 | where AppId == azure_mcp_appid
 | extend SignInType = "Interactive"
 | project TimeGenerated, UserPrincipalName, AppDisplayName, AppId,
@@ -488,7 +524,7 @@ let signinlogs_interactive = SigninLogs
     OS = tostring(parse_json(DeviceDetail).operatingSystem),
     Country = tostring(parse_json(LocationDetails).countryOrRegion);
 let signinlogs_noninteractive = AADNonInteractiveUserSignInLogs
-| where TimeGenerated >= ago(90d)
+| where TimeGenerated >= ago(30d)
 | where AppId == azure_mcp_appid
 | extend SignInType = "Non-Interactive"
 | project TimeGenerated, UserPrincipalName, AppDisplayName, AppId,
@@ -502,11 +538,42 @@ let signinlogs_noninteractive = AADNonInteractiveUserSignInLogs
     Country = tostring(parse_json(LocationDetails).countryOrRegion);
 union signinlogs_interactive, signinlogs_noninteractive
 | order by TimeGenerated desc
+| take 15
 ```
 
 ---
 
-## Query 14: Azure MCP Server — Workspace Queries (LAQueryLogs)
+## Query 14: Azure MCP Server — Workspace Query Summary (Default)
+
+**Purpose:** Provide a bounded workspace-query summary and estimate Azure MCP versus manual CLI usage.
+
+```kql
+// Azure MCP Server / Azure CLI workspace queries — aggregated summary (default)
+// Use Q14-detail for raw query inspection only when anomalies are detected
+let azure_cli_appid = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
+LAQueryLogs
+| where TimeGenerated >= ago(30d)
+| where AADClientId == azure_cli_appid
+| extend HasLimitSuffix = QueryText has "\n| limit" or QueryText has "\r\n| limit"
+| summarize
+    QueryCount = count(),
+    MCP_Likely = countif(HasLimitSuffix),
+    CLI_Likely = countif(not(HasLimitSuffix)),
+    DistinctUsers = dcount(AADEmail),
+    Users = make_set(AADEmail, 5),
+    AvgCPUMs = round(avg(StatsCPUTimeMs), 0),
+    TotalRowsReturned = sum(ResponseRowCount),
+    ErrorCount = countif(ResponseCode >= 400),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+| extend MCP_Pct = iff(QueryCount > 0, round(100.0 * MCP_Likely / QueryCount, 1), 0.0)
+```
+
+---
+
+## Query 14-detail: Azure MCP Server — Workspace Queries — Raw Drill-Down
+
+> **Drill-down only.** Use this query when Q14 reveals anomalies (high error rate, unknown users, unexpected activity). Not for default execution — returns raw rows that can cause token spikes in large tenants.
 
 **Purpose:** Detect Azure MCP Server workspace queries. Best differentiator: `\n| limit N` suffix.
 
@@ -514,7 +581,7 @@ union signinlogs_interactive, signinlogs_noninteractive
 // Azure MCP Server / Azure CLI workspace queries
 let azure_cli_appid = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
 LAQueryLogs
-| where TimeGenerated >= ago(90d)
+| where TimeGenerated >= ago(30d)
 | where AADClientId == azure_cli_appid
 | extend HasLimitSuffix = QueryText has "\n| limit" or QueryText has "\r\n| limit"
 | project TimeGenerated, AADEmail, AADClientId,
@@ -525,6 +592,7 @@ LAQueryLogs
     RequestTarget,
     HasLimitSuffix
 | order by TimeGenerated desc
+| take 15
 ```
 
 > **Post-processing:** `HasLimitSuffix = true` → highly likely Azure MCP Server queries.
@@ -537,7 +605,7 @@ LAQueryLogs
 **Note:** Uses `TimeGenerated` for all tables (Log Analytics execution, not Advanced Hunting).
 
 ```kql
-let lookback = 7d;
+let lookback = 30d;
 let graph_mcp = MicrosoftGraphActivityLogs
 | where TimeGenerated > ago(lookback)
 | where AppId == "e8c77dc2-69b3-43f4-bc51-3213c9d915b4"
@@ -574,7 +642,7 @@ union graph_mcp, triage_mcp, datalake_mcp, azure_mcp
 | join kind=leftouter upn_map on UserId
 | project UPN = coalesce(UPN, UserId), ServerCount, Servers, TotalCalls
 | sort by ServerCount desc, TotalCalls desc
-| take 25
+| take 15
 ```
 
 ---

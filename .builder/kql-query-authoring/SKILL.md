@@ -3,6 +3,8 @@ name: kql-query-authoring
 description: Use this skill when asked to write, create, or help with KQL (Kusto Query Language) queries for Microsoft Sentinel, Defender XDR, or Azure Data Explorer. Triggers on keywords like "write KQL", "create KQL query", "help with KQL", "query [table]", "KQL for [scenario]", or when a user requests queries for specific data analysis scenarios. This skill uses schema validation, Microsoft Learn documentation, and community examples to generate production-ready KQL queries.
 ---
 
+> 📏 **Result & Token Guardrails** — See [shared-guardrails.md](../shared-guardrails.md) for universal result-cap, time-window, and aggregation rules that apply to all skills.
+
 # KQL Query Authoring - Instructions
 
 ## Purpose

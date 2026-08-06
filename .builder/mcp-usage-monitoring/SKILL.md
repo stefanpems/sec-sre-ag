@@ -5,6 +5,8 @@ threat_pulse_domains: [admin]
 drill_down_prompt: 'Run MCP usage monitoring report — Graph/Sentinel/Azure MCP activity, user attribution'
 ---
 
+> 📏 **Result & Token Guardrails** — See [shared-guardrails.md](../shared-guardrails.md) for universal result-cap, time-window, and aggregation rules that apply to all skills.
+
 > ⚠️ **CRITICAL TOOL RULE — ALWAYS PASS --subscription TO MCP MONITOR**
 >
 > When calling `monitor-client_monitor_workspace_log_query`, the `subscription` parameter is MANDATORY. Without it, the tool returns a 400 error that produces 0 results. Always pass it.
@@ -81,19 +83,22 @@ All KQL queries in this skill are pre-authored and saved in the companion file [
 ## 📑 TABLE OF CONTENTS
 
 1. **[Critical Workflow Rules](#-critical-workflow-rules---read-first-)** - Start here!
-2. **[Extended MCP Server Landscape](#extended-microsoft-mcp-server-landscape-reference)** - Full Microsoft MCP ecosystem catalog
-3. **[Phase 0: Results Cache Check](#phase-0-results-cache-check-mandatory)** — Cache reuse logic
-4. **[Output Modes](#output-modes)** - Inline chat vs. Markdown file vs. HTML report
-5. **[Scalability & Token Management](#scalability--token-management)** - Guidance for large environments
-6. **[Quick Start](#quick-start-tldr)** - 10-step investigation pattern
-7. **[MCP Usage Score Formula](#mcp-usage-score-formula)** - Composite health & risk scoring
-8. **[Execution Workflow](#execution-workflow)** - Complete 7-phase process
-9. **[Sample KQL Queries](#sample-kql-queries)** - Reference to queries.md
-10. **[Report Template](#report-template)** - Output format specification
-11. **[Proactive Alerting — KQL Data Lake Jobs](#proactive-alerting--kql-data-lake-jobs)** - Scheduled anomaly detection
-12. **[Known Pitfalls](#known-pitfalls)** - Edge cases and false positives
-13. **[Error Handling](#error-handling)** - Troubleshooting guide
-14. **[SVG Dashboard Generation](#svg-dashboard-generation)** - Visual dashboard from completed report
+2. **[Known AppIds Reference](#known-appids-reference)** - Quick AppId lookup + full companion file
+3. **[Extended MCP Server Landscape](#extended-microsoft-mcp-server-landscape-reference)** - Full Microsoft MCP ecosystem catalog (companion)
+4. **[Phase 0: Results Cache Check](#phase-0-results-cache-check-mandatory)** — Cache reuse logic
+5. **[Output Modes](#output-modes)** - Inline chat vs. Markdown file vs. HTML report
+6. **[Scalability & Token Management](#scalability--token-management)** - Guidance for large environments
+7. **[Two-Pass Architecture](#two-pass-architecture-recommended-for-all-environments)** - Token-aware execution model
+8. **[Quick Start](#quick-start-tldr)** - Q1-first execution sequence
+9. **[Smart Query Routing](#smart-query-routing-short-circuit-logic)** - Active-server conditional routing
+10. **[MCP Usage Score Formula](#mcp-usage-score-formula)** - Composite health & risk scoring
+11. **[Execution Workflow](#execution-workflow)** - Complete phased process
+12. **[Sample KQL Queries](#sample-kql-queries)** - Reference to queries.md
+13. **[Report Template](#report-template)** - Output format specification
+14. **[Proactive Alerting — KQL Data Lake Jobs](#proactive-alerting--kql-data-lake-jobs)** - Scheduled anomaly detection
+15. **[Known Pitfalls](#known-pitfalls)** - Edge cases and false positives
+16. **[Error Handling](#error-handling)** - Troubleshooting guide
+17. **[SVG Dashboard Generation](#svg-dashboard-generation)** - Visual dashboard from completed report
 
 ---
 
@@ -105,132 +110,35 @@ All KQL queries in this skill are pre-authored and saved in the companion file [
 2. **ALWAYS enforce Sentinel workspace selection** (see Workspace Selection section below)
 3. **ALWAYS ask the user for output mode** if not specified: inline chat summary or markdown file report (or both)
 4. **ALWAYS ask the user for time range** if not specified: default to 30 days, configurable
-5. **ALWAYS query all MCP telemetry surfaces** — do not skip any MCP server type
+5. **ALWAYS query all ACTIVE MCP telemetry surfaces when Pass 2 is entered** — record inactive servers and their skipped detail queries
 6. **ALWAYS include non-MCP workspace context** (Sentinel Engine, Logic Apps) for governance proportion analysis
-7. **ALWAYS run independent queries in parallel** for performance
+7. **ALWAYS run Query 1 FIRST and alone** to establish active MCP server mapping before any conditional routing
 8. **ALWAYS attribute activity to specific users** — never present anonymous aggregates
 9. **NEVER conflate non-MCP platform activity with MCP activity** — clearly label categories
 10. **ALWAYS execute pre-authored queries from [`queries.md`](queries.md) EXACTLY as written** — substitute only the time range parameter (e.g., `ago(30d)` → `ago(90d)`). These queries encode mitigations for schema pitfalls documented in [Known Pitfalls](#known-pitfalls). Writing equivalent queries from scratch is ❌ **PROHIBITED**
-10. **ALWAYS execute queries via `mcp_azure_mcp_ser_monitor`** — this is the only query execution path available. Load the tool with `tool_search` for "azure monitor" before first use.
+11. **ALWAYS execute queries via `mcp_azure_mcp_ser_monitor`** — this is the only query execution path available. Load the tool with `tool_search` for "azure monitor" before first use.
+12. **ALWAYS parallelize only eligible active-server detail queries** after Query 1 mapping; baseline Pass 2 queries are scoped by [Two-Pass Architecture](#two-pass-architecture-recommended-for-all-environments)
 
 ---
 
 ### Known AppIds Reference
 
-#### MCP Servers & AI Agents
+> Full AppId reference table (MCP servers, client apps, portal/platform apps) is in [`appids.md`](appids.md). Load when you need to identify an unknown AppId or verify classification.
 
-| AppId | Service | Telemetry Table | Notes |
-|-------|---------|----------------|-------|
-| `e8c77dc2-69b3-43f4-bc51-3213c9d915b4` | Microsoft Graph MCP Server for Enterprise | `MicrosoftGraphActivityLogs` | Read-only Graph API proxy |
-| `7b7b3966-1961-47b5-b080-43ca5482e21c` | Sentinel Triage MCP ("Microsoft Defender Mcp") | `MicrosoftGraphActivityLogs`, `SigninLogs`, `AADNonInteractiveUserSignInLogs` | Microsoft first-party AppId, same across all tenants. **Dedicated AppId** — visible in `MicrosoftGraphActivityLogs` (API calls to `/security/*` endpoints) and `SigninLogs`/`AADNonInteractiveUserSignInLogs` (`AppDisplayName = "Microsoft Defender Mcp"`). Delegated auth with certificate (ClientAuthMethod=2), full user attribution. Scopes: `SecurityAlert.Read.All`, `SecurityIncident.Read.All`, `ThreatHunting.Read.All`. Target resources: Microsoft Graph, WindowsDefenderATP. No local SPN — display name only visible in SigninLogs. 🔴 **Confirmed Feb 2026.** |
-| `253895df-6bd8-4eaf-b101-1381ec4306eb` | Sentinel Platform Services App Reg | `SigninLogs` | Sentinel-hosted MCP platform |
-| `04b07795-8ddb-461a-bbee-02f9e1bf7b46` | Azure MCP Server (local stdio via DefaultAzureCredential → Azure CLI) | `SigninLogs`, `AADNonInteractiveUserSignInLogs`, `LAQueryLogs` | Shared AppId with Azure CLI. In LAQueryLogs, `RequestClientApp` is **empty** (not a unique fingerprint). Azure MCP appends `\n\| limit N` to query text — the only query-level differentiator. Read-only ARM ops don't appear in AzureActivity. 🔄 **Updated Feb 2026:** Previously documented as AppId `1950a258` — obsolete. |
-| *(none — uses DefaultAzureCredential)* | Azure MCP Server (local stdio) | `AzureActivity` | ARM **write** operations only; read ops not logged. Claims.appid = `04b07795`. |
-| *(no AppId — Purview unified audit)* | Sentinel Data Lake MCP | `CloudAppEvents` | RecordType 403; Interface `IMcpToolTemplate`; tools: `query_lake`, `list_sentinel_workspaces`, `search_tables` |
-
-#### Sentinel MCP Collection Endpoints
-
-| Endpoint URL | Collection | Monitored |
-|-------------|------------|----------|
-| `https://sentinel.microsoft.com/mcp/data-exploration` | Data Exploration (Data Lake MCP) | ✅ Phase 3 |
-| `https://sentinel.microsoft.com/mcp/triage` | Triage (Triage MCP) | ✅ Phase 2 |
-| `https://sentinel.microsoft.com/mcp/security-copilot-agent-creation` | Security Copilot Agent Creation | ❌ See [Landscape](#extended-microsoft-mcp-server-landscape-reference) |
-
-#### Client Applications
-
-| AppId | Service | Telemetry Table | Notes |
-|-------|---------|----------------|-------|
-| `aebc6443-996d-45c2-90f0-388ff96faa56` | Visual Studio Code | `SigninLogs` | VS Code as MCP client → Sentinel |
-| `9ba5f2e4-6bbf-4df2-b19b-7f1bcb926818` | PowerPlatform-sentinelmcp-Connector | `SigninLogs` | Copilot Studio → Sentinel MCP |
-| `04b07795-8ddb-461a-bbee-02f9e1bf7b46` | Azure CLI (DefaultAzureCredential) | `SigninLogs`, `AADNonInteractiveUserSignInLogs`, `LAQueryLogs` | **Primary Azure MCP Server credential path** (field-tested Feb 2026). Shared AppId with manual `az` CLI. |
-
-#### Portal & Platform Applications (Non-MCP — for context)
-
-| AppId | Service | Telemetry Table | Notes |
-|-------|---------|----------------|-------|
-| `80ccca67-54bd-44ab-8625-4b79c4dc7775` | M365 Security & Compliance Center (Sentinel Portal) | `LAQueryLogs` | `ASI_Portal`, `ASI_Portal_Connectors` — NOT an MCP server |
-| `95a5d94c-a1a0-40eb-ac6d-48c5bdee96d5` | Azure Portal — AppInsightsPortalExtension | `LAQueryLogs` | Azure Portal blade. NOT MCP, NOT VS Code. |
-| `de8c33bb-995b-4d4a-9d04-8d8af5d59601` | PowerPlatform-AzureMonitorLogs-Connector | `AADNonInteractiveUserSignInLogs`, `LAQueryLogs` | Logic Apps → Log Analytics (NOT MCP) |
-| `fc780465-2017-40d4-a0c5-307022471b92` | Sentinel Engine (analytics rules, UEBA, Advanced Hunting backend) | `LAQueryLogs` | Built-in scheduled query engine (NOT MCP). Also serves as the **execution backend for Advanced Hunting**. |
+**Quick reference (most used):**
+| AppId | Service |
+|---|---|
+| `e8c77dc2-69b3-43f4-bc51-3213c9d915b4` | Graph MCP Server |
+| `7b7b3966-1961-47b5-b080-43ca5482e21c` | Sentinel Triage MCP |
+| `04b07795-8ddb-461a-bbee-02f9e1bf7b46` | Azure CLI / Azure MCP Server |
+| `80ccca67-54bd-44ab-8625-4b79c4dc7775` | Sentinel Portal (NOT MCP) |
+| `fc780465-2017-40d4-a0c5-307022471b92` | Sentinel Engine (NOT MCP) |
 
 ---
 
 ## Extended Microsoft MCP Server Landscape (Reference)
 
-Beyond the four MCP servers actively monitored by this skill, Microsoft's MCP ecosystem includes many additional servers. This section catalogs them for awareness, threat modeling, and future monitoring expansion.
-
-### Sentinel MCP Collections (Microsoft-Hosted)
-
-| Collection | Endpoint URL | Purpose | Monitored by This Skill |
-|------------|-------------|---------|-------------------------|
-| **Data Exploration** | `https://sentinel.microsoft.com/mcp/data-exploration` | `query_lake`, `search_tables`, `list_sentinel_workspaces`, entity analyzer | ✅ Phase 3 (CloudAppEvents) |
-| **Triage** | `https://sentinel.microsoft.com/mcp/triage` | Incident triage, Advanced Hunting, entity investigation | ✅ Phase 2 (MicrosoftGraphActivityLogs + SigninLogs) |
-| **Security Copilot Agent Creation** | `https://sentinel.microsoft.com/mcp/security-copilot-agent-creation` | Create Microsoft Security Copilot agents | ❌ Not yet monitored |
-
-**Sentinel Custom MCP Tools:** Organizations can create their own MCP tools by exposing saved KQL queries from Advanced Hunting as MCP tools. These execute through the same Sentinel MCP infrastructure and are audited in `CloudAppEvents` (RecordType 403) alongside built-in tools.
-
-### Power BI MCP Servers
-
-| Server | Type | Endpoint / Repo | Purpose | Telemetry Surface |
-|--------|------|----------------|---------|-------------------|
-| **Power BI Remote MCP** | Microsoft-hosted | `https://api.fabric.microsoft.com/v1/mcp/powerbi` | Query Power BI datasets, reports, and workspaces remotely | 🟡 `PowerBIActivity` table |
-| **Power BI Modeling MCP** | Local (stdio) | [microsoft/powerbi-modeling-mcp](https://github.com/microsoft/powerbi-modeling-mcp) | Local Power BI model operations | ❌ Local only |
-
-### Fabric & Azure Data Explorer MCP Servers
-
-| Server | Type | Endpoint / Repo | Purpose | Telemetry Surface |
-|--------|------|----------------|---------|-------------------|
-| **Fabric RTI MCP Server** | Local (stdio) | [microsoft/fabric-rti-mcp](https://github.com/microsoft/fabric-rti-mcp/) | Query ADX clusters and Fabric RTI Eventhouses | 🟡 ADX audit logs |
-| **Azure MCP Server — Kusto namespace** | Local (stdio) | Part of Azure MCP Server | Manage ADX clusters, databases, tables | ✅ Already covered (Phase 4) |
-| **Kusto Query MCP** | Copilot Studio built-in | Copilot Studio catalog | KQL query execution from Copilot Studio agents | 🟡 CloudAppEvents |
-
-### Developer & Productivity MCP Servers
-
-| Server | Type | Repo | Purpose | Telemetry Surface |
-|--------|------|------|---------|-------------------|
-| **Playwright MCP** | Local (stdio) | [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp) | Browser automation | ❌ Local only |
-| **GitHub MCP Server** | Local (stdio) | [github/github-mcp-server](https://github.com/github/github-mcp-server) | GitHub repo operations | ❌ GitHub audit logs only |
-| **Microsoft Learn Docs MCP** | Cloud-hosted | Certified Copilot Studio connector | Documentation search | ❌ Public docs |
-
-### Copilot Studio Built-in MCP Servers (19+ servers)
-
-| Category | MCP Servers | Security Relevance |
-|----------|-------------|--------------------|
-| **Microsoft 365** | Outlook Mail, Outlook Calendar, 365 User Profile, Teams, Word, 365 Copilot (Search) | 🔴 High — email, calendar, user profile access |
-| **SharePoint & OneDrive** | SharePoint and OneDrive, SharePoint Lists | 🟠 Medium — file and data access |
-| **Administration** | 365 Admin Center | 🔴 High — administrative control plane |
-| **Dataverse** | Dataverse MCP | 🟠 Medium — business data access |
-| **Dynamics 365** | Sales, Finance, Supply Chain, Service, ERP, Contact Center | 🟡 Low-Medium |
-| **Fabric** | Fabric MCP | 🟠 Medium — analytics data access |
-| **Office 365 Outlook** | Contact Management, Email Management, Meeting Management | 🔴 High — email and contact data |
-| **Meta-Server** | MCP Management MCP | 🟠 Medium — manages other MCP servers |
-
-> ⚠️ **Telemetry gap:** Copilot Studio built-in MCP servers are NOT directly visible in `LAQueryLogs` or `MicrosoftGraphActivityLogs`. Monitor via `CloudAppEvents` (Copilot Studio workload) or M365 unified audit log.
-
-### Azure MCP Server — Full Tool Surface
-
-| Category | Namespaces | Security-Relevant Tools |
-|----------|-----------|------------------------|
-| **AI & ML** | `foundry`, `search`, `speech` | AI Foundry model access, Search index queries |
-| **Identity** | `role` | ⚠️ RBAC role assignments |
-| **Security** | `keyvault`, `appconfig`, `confidentialledger` | 🔴 Key Vault secrets/keys/certs |
-| **Databases** | `cosmos`, `mysql`, `postgres`, `redis`, `sql` | Database access |
-| **Storage** | `storage`, `fileshares`, `storagesync`, `managedlustre` | Blob, file access |
-| **Compute** | `appservice`, `functionapp`, `aks` | App Service, Functions, Kubernetes |
-| **Networking** | `eventhubs`, `servicebus`, `eventgrid`, `communication`, `signalr` | Messaging |
-| **DevOps** | `bicepschema`, `deploy`, `monitor`, `workbooks`, `grafana` | Infrastructure deployment |
-| **Governance** | `policy`, `quota`, `resourcehealth`, `cloudarchitect` | Policy management |
-
-### Monitoring Expansion Priorities
-
-| Priority | Server | Why | How to Monitor |
-|----------|--------|-----|----------------|
-| 🔴 **P1** | Copilot Studio built-in M365 MCPs | Email, Teams, admin center access | `ai-agent-posture` skill + CloudAppEvents |
-| 🔴 **P1** | Security Copilot Agent Creation | Creates autonomous security agents | CloudAppEvents |
-| 🟠 **P2** | Power BI Remote MCP | Dataset query access via API | `PowerBIActivity` table |
-| 🟠 **P2** | Sentinel Custom MCP Tools | User-defined tools, same audit surface | Already visible in Phase 3 CloudAppEvents |
-| 🟡 **P3** | Fabric RTI MCP | ADX/Eventhouse data access | ADX diagnostic logs |
-| ⚪ **P4** | Playwright, GitHub, Learn Docs MCPs | Local/public, minimal telemetry | Not monitorable from Sentinel |
+> Full catalog of 30+ Microsoft MCP servers, telemetry surfaces, and monitoring expansion priorities is in [`landscape.md`](landscape.md). Load only when needed for threat modeling or monitoring expansion planning.
 
 ---
 
@@ -270,6 +178,8 @@ Beyond the four MCP servers actively monitored by this skill, Microsoft's MCP ec
 | `anomaly-detection-jobs.md` | Scheduled KQL Data Lake jobs for proactive anomaly detection |
 | `generate_html_report.py` | HTML report generator — reads JSON export, produces styled HTML |
 | `svg-widgets.yaml` | SVG dashboard widget manifest for visualization |
+| `landscape.md` | Extended MCP server landscape catalog — load on demand |
+| `appids.md` | Full AppId reference table — load on demand |
 
 ### File Resolution (codeRefs-first)
 
@@ -484,16 +394,54 @@ This skill was developed in a small lab environment (1–2 users, single workspa
 
 ### Guardrails for Large Environments
 
-| Parameter | Small Env (default) | Large Env |
-|-----------|--------------------|-----------|
-| `make_set(..., N)` for users | 10 | 5 |
-| `make_set(..., N)` for endpoints | 20–30 | 10 |
-| `take` on governance tables | 25 | 15 |
-| `take` on endpoint rankings | 25 | 15 |
+| Parameter | Default | Large Env (>50 users) |
+|-----------|---------|-----------------------|
+| `make_set(..., N)` for users | 5 | 3 |
+| `make_set(..., N)` for endpoints | 10 | 10 |
+| `take` on governance tables | 15 | 15 |
+| `take` on endpoint rankings | 15 | 15 |
 
 **Incremental file writes (markdown mode):** Write header first with `create_file`, then append sections with `replace_string_in_file`.
 
 **Two-pass approach for very large tenants:** Pass 1 = summary with aggressive limits. Pass 2 = drill-down on specific sections.
+
+### Two-Pass Architecture (Recommended for All Environments)
+
+| Pass | Queries | Purpose | When to Execute |
+|---|---|---|---|
+| **Pass 1 — Triage** | Q1 + Q15 only | High-level panorama: which servers are active, who are the top users, total volume | Always |
+| **Pass 2 — Detail** | Q2-Q14 (only for active servers per Q1) | Endpoint breakdown, auth events, error analysis, governance | Only for servers with Q1 Calls > 0 |
+
+**Token budget estimate:**
+
+| Scenario | Pass 1 | Pass 2 | Total Queries |
+|---|---|---|---|
+| No MCP activity | Q1 + Q15 = 2 queries | 0 | **2** |
+| Only Azure MCP/CLI active | Q1 + Q15 = 2 | Q3, Q4, Q7, Q8, Q13, Q14 = 6 | **8** |
+| All 4 servers active | Q1 + Q15 = 2 | Q2-Q14 = 13 | **15** |
+
+**Decision logic after Pass 1:**
+
+```text
+IF Q1 returns 0 rows for ALL servers:
+   → Report "No MCP activity detected" + recommendations
+   → STOP (total: 2 queries)
+
+IF Q1 returns rows for SOME servers:
+   → Run Pass 2 only for active servers
+   → Skip detail queries for inactive servers
+
+IF user explicitly requests "full analysis" or "all servers":
+   → Run all queries regardless of Q1 results
+```
+
+**How to handle the user prompt "summarize MCP activity":**
+The word "summarize" implies Pass 1 is sufficient unless anomalies are found. Only escalate to Pass 2 if:
+- Any server shows ErrorRate > 5%
+- Unknown users appear in Q15
+- Volume is unexpectedly high (> 100 calls/day for a small tenant)
+
+The always-run Q3/Q4/Q7/Q8 baseline applies only after Pass 2 is entered; a Pass-1-only summary stops after Q1 + Q15.
 
 ---
 
@@ -504,17 +452,34 @@ When a user requests MCP usage monitoring:
 1. **Select Workspace** → Ask user, or use `mcp_azure_mcp_ser_monitor` to discover workspaces
 2. **Determine Output Mode** → Ask if not specified: inline, markdown file, or both
 3. **Determine Time Range** → Ask if not specified; default 30 days
-4. **Run Phase 1 (Graph MCP)** → Load queries from [`queries.md`](queries.md), execute Q1 + Q2 via `mcp_azure_mcp_ser_monitor`
-5. **Run Phase 2 (Sentinel Triage MCP)** → Execute Q3-Q7
-6. **Run Phase 3 (Sentinel Data Lake MCP)** → Execute Q10-Q12
-7. **Run Phase 4 (Azure MCP & ARM)** → Execute Q13-Q14
-8. **Run Phase 5 (Workspace Governance)** → Execute Q8
-9. **Run Phase 6 (Cross-Server User Analysis)** → Execute Q9 + Q15
-10. **Run Phase 7 (Assessment)** → Compute MCP Usage Score, security assessment, render report
+4. **Run Q1 FIRST (alone) — inspect which servers have activity**
+5. **Run detail queries ONLY for active servers (parallel batch)** → When Pass 2 is entered, always include Q3, Q4, Q7, and Q8; Q15 already ran in Pass 1
+6. **Report skipped servers** → Use the required no-activity message for every inactive server
+7. **Run final assessment** → Compute MCP Usage Score, security assessment, render report
 
-**Parallel execution:** Phases 1-5 contain independent queries — run all of them in parallel for performance. Phases 6-7 depend on results from 1-5.
+**Parallel execution rule:** Q1 runs alone. After Q1, only eligible active-server detail queries run in parallel.
 
 **Query execution method:** All queries are executed via `mcp_azure_mcp_ser_monitor` against the user's Log Analytics workspace. Load the tool first with `tool_search` for "azure monitor workspace".
+
+### Smart Query Routing (Short-Circuit Logic)
+
+After executing Q1, inspect results to determine which servers are active:
+
+| Q1 Server Value | If Calls == 0, SKIP | If Calls > 0, RUN |
+|---|---|---|
+| `Graph MCP` | Q2, Q9 | Q2, Q9 |
+| `Triage MCP` | Q5, Q6 | Q5, Q6 |
+| `Data Lake MCP` | Q10, Q11, Q12 | Q10, Q11, Q12 |
+| `Azure MCP/CLI` | Q13, Q14 | Q13, Q14 |
+
+**Pass 1, run once regardless of Q1 results:** Q15
+
+**Pass 2 baseline-on-entry, run once regardless of active-server mapping:** Q3, Q4, Q7, Q8
+
+When a server is skipped, report it in the output as:
+> ✅ **[Server Name]:** No activity detected in the analysis period — detail queries skipped.
+
+The always-run list applies once Pass 2 is entered; Pass-1 summary behavior follows the Two-Pass Architecture.
 
 ---
 
@@ -568,17 +533,33 @@ Business hours: **08:00–18:00 local time** (derive from user's primary sign-in
 
 ## Execution Workflow
 
+> **On-demand reference files:** If you encounter an unknown AppId during analysis, load [`appids.md`](appids.md) via `read_skill_file`. For threat modeling or monitoring expansion, load [`landscape.md`](landscape.md).
+
 ### Phase 1: Graph MCP Server Analysis
 
-**Data source:** `MicrosoftGraphActivityLogs`
-**Filter:** `AppId == "e8c77dc2-69b3-43f4-bc51-3213c9d915b4"`
+**Phase 1 is now split into two sub-phases:**
+- **Phase 1a:** Execute Q1. Parse results. Build the active-server set.
+- **Phase 1b:** Execute Q2 + Q9 only if `Graph MCP` had Calls > 0 in Q1.
+
+#### Phase 1a: Q1 Active-Server Mapping (run first, alone)
+
+**Data sources:** `MicrosoftGraphActivityLogs`, `CloudAppEvents`, `SigninLogs`, `AADNonInteractiveUserSignInLogs`
+**Execution:** `mcp_azure_mcp_ser_monitor`
+
+Collect:
+- **Execute Query 1** (Unified Daily MCP Activity Trend) — returns daily `Server | Day | Calls | Errors | ErrorRate` for ALL 4 MCP servers in one pass.
+- Determine active/inactive server state used by [Smart Query Routing](#smart-query-routing-short-circuit-logic).
+
+#### Phase 1b: Graph MCP Detail (conditional)
+
 **Execution:** `mcp_azure_mcp_ser_monitor` against Log Analytics workspace
 
 Collect:
-- **Execute Query 1** (Unified Daily MCP Activity Trend) — returns daily `Server | Day | Calls | Errors | ErrorRate` for ALL 4 MCP servers in one pass. Run this ONCE here; do NOT re-run in Phases 2–4.
-- **Execute Query 2** (Endpoint & Activity Summary) — returns per-endpoint rows with call counts, sensitivity flag, off-hours metrics, error rates, and user sets.
+- **Execute Query 2** (Endpoint & Activity Summary) — Graph endpoint summary (run when Graph MCP is active)
+- **Execute Query 9** — Graph caller attribution (User vs SPN) when Graph MCP is active
+- **Query 15 runs immediately after Q1 as the Pass 1 cross-server baseline** — do not execute it again in Phase 1b or Pass 2
 
-### Phase 2: Sentinel Triage MCP Analysis
+### Phase 2: Sentinel Triage MCP Analysis (Pass 2 conditional)
 
 **Data sources:** `MicrosoftGraphActivityLogs`, `SigninLogs`, `AADNonInteractiveUserSignInLogs`
 **Filter:** AppId = `7b7b3966-1961-47b5-b080-43ca5482e21c` ("Microsoft Defender Mcp")
@@ -593,13 +574,11 @@ The Sentinel Triage MCP has a **dedicated AppId** (`7b7b3966`) visible in both `
 - **API endpoints:** POST `/v1.0/security/runHuntingQuery/`, GET `/security/incidents/`, GET `/security/alerts_v2/`
 
 Collect:
-- **Execute Query 3** — authentication events by client app
-- **Execute Query 4** — client app usage breakdown
-- **Execute Query 5** — Triage MCP API usage from `MicrosoftGraphActivityLogs`
-- **Execute Query 6** — Triage MCP authentication events from `SigninLogs`/`AADNonInteractiveUserSignInLogs`
-- **Execute Query 7** — LAQueryLogs for Advanced Hunting downstream queries
+- **Baseline-on-entry (Pass 2 only): Execute Query 3 and Query 4**
+- **Active-server details (only when Triage MCP is active): Execute Query 5 and Query 6**
+- **Baseline-on-entry (Pass 2 only): Execute Query 7**
 
-### Phase 3: Sentinel Data Lake MCP Analysis
+### Phase 3: Sentinel Data Lake MCP Analysis (conditional by active mapping)
 
 **Data source:** `CloudAppEvents` (Purview unified audit log)
 **Execution:** `mcp_azure_mcp_ser_monitor` — `CloudAppEvents` uses `TimeGenerated` when queried via Log Analytics (not `Timestamp` as in Advanced Hunting).
@@ -621,33 +600,37 @@ Collect:
 - **Execute Query 11** — interface breakdown with call counts
 - **Execute Query 12** — error analysis
 
-### Phase 4: Azure MCP Server Authentication & Queries
+Run this phase only when Data Lake MCP activity is present in Q1.
+
+### Phase 4: Azure MCP Server Authentication & Queries (conditional by active mapping)
 
 **Data sources:** `SigninLogs`, `AADNonInteractiveUserSignInLogs`, `LAQueryLogs`
 **Filter:** AppId = `04b07795-8ddb-461a-bbee-02f9e1bf7b46`
 
 Collect:
-- **Execute Query 13** — Azure MCP Server authentication events
-- **Execute Query 14** — Azure MCP Server workspace queries from LAQueryLogs
+- **Execute Query 13** — Azure MCP Server authentication summary (aggregate default)
+- **Execute Query 14** — Azure MCP Server workspace query summary (aggregate default)
+- **Execute Query 13-detail / 14-detail only when anomalies are detected** (unexpected users, high error rates, unusual countries, suspicious query patterns)
+
+Run Q13 and Q14 only when Azure MCP/CLI activity is present in Q1.
 
 **Detection Method (🔄 Updated Feb 2026):**
 Azure MCP Server authenticates via **Azure CLI credential** (`04b07795`), NOT `AzurePowerShellCredential` (`1950a258`) as previously documented. `RequestClientApp` is **empty**. Best differentiator: Azure MCP appends `\n| limit N` to query text.
 
 **🔴 Token Caching Behavior:** Sign-in events appear at **token acquisition time**, NOT at each API call. ~1hr token lifetime means at most ~24 sign-in event clusters per day.
 
-### Phase 5: Workspace Query Governance
+### Phase 5: Workspace Query Governance (Pass 2 baseline-on-entry)
 
 **Data source:** `LAQueryLogs` (Analytics tier), `CloudAppEvents` (Data Lake tier)
 
 Collect:
-- **Execute Query 8** — all clients querying the Analytics tier workspace
+- **Execute Query 8** — all clients querying the Analytics tier workspace (run when Pass 2 is entered)
 - Data Lake tier query volume from Phase 3 results
 
 ### Phase 6: Cross-Server User Analysis
 
 Collect:
-- **Execute Query 9** — Graph MCP caller attribution (User vs SPN)
-- **Execute Query 15** — Top MCP users ranked by cross-server breadth
+- **Execute Query 15** — Top MCP users ranked by cross-server breadth (Pass 1 baseline)
 
 **Note:** For SPN enrichment (Query 9 post-processing), since Graph MCP is not integrated with Azure SRE Agent, cross-reference SPNs with `AADServicePrincipalSignInLogs` or `AuditLogs` in the workspace to identify `tags` like `AgenticApp`, `AIAgentBuilder`, etc.
 
@@ -668,21 +651,23 @@ Collect:
 
 | Query | Purpose | Phase |
 |-------|---------|-------|
-| Q1 | Unified Daily MCP Activity Trend (all 4 servers) | 1 |
-| Q2 | Graph MCP — Endpoint & Activity Summary | 1 |
-| Q3 | Sentinel MCP — Authentication Events | 2 |
-| Q4 | Sentinel MCP — Client App Breakdown | 2 |
-| Q5 | Sentinel Triage MCP — API Call Activity | 2 |
-| Q6 | Sentinel Triage MCP — Authentication Events | 2 |
-| Q7 | LAQueryLogs — Advanced Hunting Downstream Queries | 2 |
-| Q8 | All Workspace Query Sources — Governance View | 5 |
-| Q9 | Graph MCP — Caller Attribution (User vs SPN) | 6 |
+| Q1 | Unified Daily MCP Activity Trend (all 4 servers) | 1a |
+| Q2 | Graph MCP — Endpoint & Activity Summary | 1b |
+| Q3 | Sentinel MCP — Authentication Events (Pass 2 baseline-on-entry) | 2 |
+| Q4 | Sentinel MCP — Client App Breakdown (Pass 2 baseline-on-entry) | 2 |
+| Q5 | Sentinel Triage MCP — API Call Activity (targeted detail) | 2 |
+| Q6 | Sentinel Triage MCP — Authentication Events (targeted detail) | 2 |
+| Q7 | LAQueryLogs — Advanced Hunting Downstream Queries (Pass 2 baseline-on-entry) | 2 |
+| Q8 | All Workspace Query Sources — Governance View (Pass 2 baseline-on-entry) | 5 |
+| Q9 | Graph MCP — Caller Attribution (User vs SPN) | 1b |
 | Q10 | Data Lake MCP — Access Pattern Summary | 3 |
 | Q11 | Data Lake MCP — Interface Breakdown | 3 |
 | Q12 | Data Lake MCP — Error Analysis | 3 |
-| Q13 | Azure MCP Server — Authentication Events | 4 |
-| Q14 | Azure MCP Server — Workspace Queries | 4 |
-| Q15 | Top MCP Users — Cross-Server Breadth | 6 |
+| Q13 | Azure MCP Server — Authentication Summary (default aggregate) | 4 |
+| Q13-detail | Azure MCP Server — Authentication Events (raw drill-down on anomaly) | 4 |
+| Q14 | Azure MCP Server — Workspace Query Summary (default aggregate) | 4 |
+| Q14-detail | Azure MCP Server — Workspace Queries (raw drill-down on anomaly) | 4 |
+| Q15 | Top MCP Users — Cross-Server Breadth | 1a / 6 |
 
 **Execution method:** Read the query from [`queries.md`](queries.md), then execute via `mcp_azure_mcp_ser_monitor` against the selected workspace.
 

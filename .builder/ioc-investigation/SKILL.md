@@ -12,6 +12,8 @@ threat_pulse_domains: [identity, endpoint, email, exposure]
 drill_down_prompt: 'Investigate IoC {entity} — threat intel, organizational exposure, affected devices'
 ---
 
+> 📏 **Result & Token Guardrails** — See [shared-guardrails.md](../shared-guardrails.md) for universal result-cap, time-window, and aggregation rules that apply to all skills.
+
 > ⚠️ **CRITICAL TOOL RULE — ALWAYS PASS --subscription TO MCP MONITOR**
 >
 > When calling `monitor-client_monitor_workspace_log_query`, the `subscription` parameter is MANDATORY. Without it, the tool returns a 400 error. Always pass it.
@@ -308,69 +310,16 @@ If a `config.json` file exists at the workspace root, it can provide additional 
 
 ---
 
-## Available Investigation Types
+### Available Investigation Types
 
-### IP Address Investigation
-**When to use:** Suspicious inbound/outbound connections, firewall alerts, sign-in anomalies
+| IoC Type | Key Data Sources | Primary Queries |
+|----------|-----------------|-----------------|
+| **IP Address** | ThreatIntelIndicators, DeviceNetworkEvents, SigninLogs, AlertEvidence, MDE IP API, `enrich_ips.py` | Q1, Q2, Q3, Q8, Q9, Q10, Q11 |
+| **Domain** | ThreatIntelIndicators, DeviceNetworkEvents, EmailUrlInfo, AlertEvidence, MDE IOC API | Q1, Q4, Q5, Q6, Q8, Q9, Q14 |
+| **URL** | ThreatIntelIndicators, EmailUrlInfo, DeviceNetworkEvents, DeviceFileEvents | Q1, Q4, Q6, Q8, Q9 |
+| **File Hash** | ThreatIntelIndicators, DeviceFileEvents, DeviceProcessEvents, AlertEvidence, MDE File API | Q1, Q7, Q7b, Q7c, Q8, Q9, Q12 |
 
-**Example prompts:**
-- "Investigate IP 203.0.113.42"
-- "Is 198.51.100.10 malicious?"
-- "Check threat intel for 192.0.2.1"
-
-**Data sources:**
-- ThreatIntelIndicators (new STIX table via Log Analytics — ⚠️ NOT legacy ThreatIntelligenceIndicator)
-- DeviceNetworkEvents (connection history via Log Analytics)
-- AlertEvidence + AlertInfo (alert correlation via Log Analytics)
-- SecurityAlert (security alerts via Log Analytics)
-- SigninLogs (if used for authentication via Log Analytics)
-- MDE Custom IOC list (via `az rest` — see defender-api-via-cli.md)
-- MDE IP alerts/statistics (via `az rest` — see defender-api-via-cli.md)
-- **`enrich_ips.py`** (3rd-party enrichment: ipinfo.io geo/ISP, vpnapi.io VPN/proxy/Tor, AbuseIPDB abuse score & reports, Shodan ports/services/CVEs/tags)
-
-### Domain Investigation
-**When to use:** Suspicious DNS queries, phishing domains, C2 communication
-
-**Example prompts:**
-- "Investigate domain malware-c2.example.com"
-- "Is evil.com in our threat intel?"
-- "Check if any devices connected to suspicious.net"
-
-**Data sources:**
-- DeviceNetworkEvents (DNS queries, HTTP connections via Log Analytics)
-- EmailUrlInfo (email-delivered URLs via Log Analytics)
-- ThreatIntelIndicators (domain indicators via Log Analytics — ⚠️ NOT legacy ThreatIntelligenceIndicator)
-- MDE Custom IOC list (via `az rest` — see defender-api-via-cli.md)
-- AlertEvidence + AlertInfo (alert correlation via Log Analytics)
-
-### URL Investigation
-**When to use:** Phishing links, malicious downloads, suspicious redirects
-
-**Example prompts:**
-- "Investigate URL https://phishing.example.com/login"
-- "Was this URL clicked by anyone?"
-- "Check threat intel for http://malware.site/payload.exe"
-
-**Data sources:**
-- EmailUrlInfo (URLs in emails via Log Analytics)
-- DeviceNetworkEvents (HTTP/HTTPS connections via Log Analytics)
-- DeviceFileEvents (downloads from URL via Log Analytics)
-- ThreatIntelIndicators (URL patterns via Log Analytics — ⚠️ NOT legacy ThreatIntelligenceIndicator)
-
-### File Hash Investigation
-**When to use:** Malware analysis, suspicious executables, file reputation
-
-**Example prompts:**
-- "Investigate hash a1b2c3d4e5f6..."
-- "Is this SHA256 known malware?"
-- "Which devices have this file?"
-
-**Data sources:**
-- DeviceFileEvents (file creation/modification via Log Analytics)
-- DeviceProcessEvents (process execution with hash via Log Analytics)
-- AlertEvidence + AlertInfo (alert correlation via Log Analytics)
-- ThreatIntelIndicators (file hash indicators via Log Analytics — ⚠️ NOT legacy ThreatIntelligenceIndicator)
-- MDE File info/stats/alerts/machines (via `az rest` — see defender-api-via-cli.md)
+For full data source details per query, see the query documentation in [Sample KQL Queries](#sample-kql-queries).
 
 ---
 
@@ -388,6 +337,7 @@ When a user requests an IoC investigation:
 2. **Run Parallel KQL Queries (Batch 1 — Threat Intel):**
    - **Q1**: ThreatIntelIndicators query (via Azure Monitor MCP — ⚠️ NOT legacy ThreatIntelligenceIndicator)
    - **MDE-IOC**: Custom IOC list search (via `RunAzCliReadCommands` + `az rest`)
+  > **⚠️ Token spike prevention:** The MDE `/api/indicators` endpoint returns ALL custom indicators in the tenant (potentially thousands). ALWAYS try the OData-filtered variant first: `/api/indicators?$filter=indicatorValue+eq+'<IOC_VALUE>'`. If it fails, fall back to the unfiltered endpoint but add `$top=500` and filter client-side. See `defender-api-via-cli.md` for details.
    - **MDE-ALERTS**: IP/File alerts from MDE API (via `RunAzCliReadCommands` + `az rest`)
 
 3. **Run 3rd-Party IP Enrichment (IP IoCs only):**
@@ -959,6 +909,7 @@ EmailUrlInfo
     LastSeen = max(Timestamp)
     by UrlDomain
 | order by EmailCount desc
+  | take 50
 ```
 
 ---
@@ -1040,6 +991,7 @@ union withsource=SourceTable DeviceProcessEvents, DeviceNetworkEvents, DeviceFil
     FolderPaths = make_set(FolderPath, 5)
     by SourceTable, ActionType
 | order by EventCount desc
+| take 50
 ```
 
 ---
@@ -1144,6 +1096,18 @@ SecurityAlert
 
 ---
 
+### Union Column Safety Reference
+
+When using `union isfuzzy=true SigninLogs, AADNonInteractiveUserSignInLogs`, only project columns that exist in BOTH tables. Using columns exclusive to one table causes `SEM0100` errors.
+
+**Safe columns for union (validated):**
+`TimeGenerated`, `UserPrincipalName`, `AppDisplayName`, `ResultType`, `ResultDescription`, `Location`, `ConditionalAccessStatus`, `UserAgent`, `ResourceDisplayName`, `IPAddress`, `ClientAppUsed`, `AuthenticationRequirement`, `CorrelationId`, `Id`, `UserId`, `UserDisplayName`
+
+**Unsafe columns (exist only in SigninLogs, NOT in AADNonInteractiveUserSignInLogs):**
+`DeviceDetail`, `MfaDetail`, `NetworkLocationDetails`
+
+**If you need unsafe columns:** Query `SigninLogs` alone (without union), or use `column_ifexists("DeviceDetail", dynamic(null))` to safely handle missing columns.
+
 ### Q11. IP Address — Sign-in Analysis (Azure AD)
 
 **Table:** `SigninLogs` + `AADNonInteractiveUserSignInLogs` (Log Analytics)
@@ -1228,6 +1192,7 @@ DeviceNetworkEvents
     TopPorts = make_set(RemotePort, 10),
     TopProcesses = make_set(InitiatingProcessFileName, 5),
     TopURLs = make_set(RemoteUrl, 5)
+| take 1
 ```
 
 ---
@@ -1252,6 +1217,7 @@ DeviceNetworkEvents
     LastSeen = max(Timestamp)
     by RemoteIP
 | order by ConnectionCount desc
+  | take 50
 ```
 
 > **Follow-up:** Use the extracted `RemoteIP` values to run `enrich_ips.py` for 3rd-party enrichment.

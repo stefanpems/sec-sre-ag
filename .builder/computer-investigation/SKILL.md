@@ -11,6 +11,8 @@ description: >
   TVM tables (software inventory, vulnerabilities) are NOT available through Log Analytics.
 ---
 
+> 📏 **Result & Token Guardrails** — See [shared-guardrails.md](../shared-guardrails.md) for universal result-cap, time-window, and aggregation rules that apply to all skills.
+
 > ⚠️ **CRITICAL OUTPUT RULE — ALWAYS PRESENT RESULTS INLINE FIRST**
 >
 > The investigation results MUST be presented **inline in chat** as the primary output. This is mandatory and non-negotiable.

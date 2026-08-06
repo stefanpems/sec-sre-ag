@@ -18,6 +18,8 @@ description: >
   "come va la sicurezza", "com'è la situazione".
 ---
 
+> 📏 **Result & Token Guardrails** — See [shared-guardrails.md](../shared-guardrails.md) for universal result-cap, time-window, and aggregation rules that apply to all skills.
+
 > ⚠️ **CRITICAL TOOL RULE — ALWAYS PASS --subscription TO MCP MONITOR**
 >
 > When calling `monitor-client_monitor_workspace_log_query`, the `subscription` parameter is MANDATORY. Without it, the tool returns a 400 error that produces 0 results instead of the expected data. Always read the subscription ID from the agent's `<azure_resource_access>` settings and pass it in every call.
@@ -224,6 +226,11 @@ When the user asks for incident statistics, extract:
 2. **Workspace details** — Resource group, workspace ID, subscription ID. Use values from the agent's configuration or ask the user.
 
 Replace `<LOOKBACK>` in all queries below with the user's requested period (e.g., `90d`).
+
+**Time Window Guardrail:** If the user requests a lookback exceeding 180 days (e.g., `365d`, `1y`), warn:
+> "A lookback of {period} may produce very large result sets and consume significant tokens. The recommended maximum is 180d. Proceed anyway?"
+
+Wait for user confirmation before executing. Default to `90d` if the user does not specify a period.
 
 ### Step 1: Execute All Queries IN PARALLEL
 

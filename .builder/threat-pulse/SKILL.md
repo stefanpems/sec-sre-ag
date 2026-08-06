@@ -12,6 +12,8 @@ description: >
   presented to the user for copy/paste execution.
 ---
 
+> 📏 **Result & Token Guardrails** — See [shared-guardrails.md](../shared-guardrails.md) for universal result-cap, time-window, and aggregation rules that apply to all skills.
+
 # Threat Pulse — Instructions
 
 ## Purpose
@@ -282,6 +284,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
     - **Default behavior is fresh collection** — cache reuse is the exception, not the rule.
 
 13. **⛔ MANDATORY: No PowerShell scripts** — The execution environment does not have `pwsh` or PowerShell. All scripts MUST be Python. Do NOT generate `.ps1` scripts or use `Invoke-RestMethod`, `Invoke-WebRequest`, or other PowerShell cmdlets in any context.
+14. **⛔ MANDATORY: Result cap on all queries** — Every KQL query executed by this skill MUST include a `| take N` cap (value defined per query in [threat-pulse-queries.md](threat-pulse-queries.md)). If a query in the file does not have a `| take`, append `| take 100` before execution. This prevents token spikes when a query unexpectedly returns thousands of rows.
 
 ---
 

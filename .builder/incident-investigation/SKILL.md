@@ -14,6 +14,8 @@ threat_pulse_domains: [incidents]
 drill_down_prompt: 'Investigate incident {entity} — alert details, entity extraction, timeline reconstruction'
 ---
 
+> 📏 **Result & Token Guardrails** — See [shared-guardrails.md](../shared-guardrails.md) for universal result-cap, time-window, and aggregation rules that apply to all skills.
+
 > ⚠️ **CRITICAL TOOL RULE — ALWAYS PASS --subscription TO MCP MONITOR**
 >
 > When calling `monitor-client_monitor_workspace_log_query`, the `subscription` parameter is MANDATORY. Without it, the tool returns a 400 error that produces 0 results instead of the expected data. Always read the subscription ID from the agent's `<azure_resource_access>` settings and pass it in every call.
@@ -779,6 +781,17 @@ All incident-related queries are stored in **`incident-queries.yaml`** in this d
 | Q8 | IncidentURLsDomains | Distinct URLs and domains | SecurityIncident → SecurityAlert |
 | Q9 | IncidentFileHashes | Distinct file hashes | SecurityIncident → SecurityAlert |
 | Q10 | IncidentMITRE | MITRE tactics & techniques | SecurityIncident → SecurityAlert |
+
+### Result Safety Caps
+
+Every query in `incident-queries.yaml` MUST include a result cap:
+- **Metadata queries (Q1, Q1b):** No cap needed (single-incident scope).
+- **Alert queries (Q2):** `| take 100` — if >100 alerts, note truncation and provide Defender portal link.
+- **Broad entity/evidence queries (Q3, Q4):** `| take 50` — present top 50, note if more exist.
+- **Typed entity queries (Q5–Q9):** `| take 30` — present top 30, note if more exist.
+- **MITRE summary (Q10):** `| take 30` — retain the highest-volume tactic/technique pairs.
+
+If a query in `incident-queries.yaml` does not have a `| take`, the agent MUST append one before execution.
 
 ### Execution Pattern
 

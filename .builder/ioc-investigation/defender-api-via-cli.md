@@ -191,11 +191,21 @@ az rest --method GET --url "https://api.securitycenter.microsoft.com/api/files/<
 
 **Tool:** `RunAzCliReadCommands`
 
+**Primary approach (filtered — preferred for token efficiency):**
+
 ```
-az rest --method GET --url "https://api.securitycenter.microsoft.com/api/indicators" --resource "https://api.securitycenter.microsoft.com"
+az rest --method GET --url "https://api.securitycenter.microsoft.com/api/indicators?\$filter=indicatorValue+eq+'<IOC_VALUE>'" --resource "https://api.securitycenter.microsoft.com"
 ```
 
-**Returns:** ALL custom indicators in the tenant.
+> This returns only matching indicators. If the OData filter is not supported by the tenant's MDE API version, fall back to the unfiltered approach below.
+
+**Fallback approach (unfiltered — use only if filtered query fails):**
+
+```
+az rest --method GET --url "https://api.securitycenter.microsoft.com/api/indicators?\$top=500" --resource "https://api.securitycenter.microsoft.com"
+```
+
+> **⚠️ Token spike prevention:** Without `$top`, this endpoint returns ALL custom indicators in the tenant (potentially thousands of items, each with multiple fields). ALWAYS include `$top=500` as a safety cap. Filter the `value` array client-side for the target IoC.
 
 **⚠️ CRITICAL: Processing Custom IOC List Results**
 
@@ -228,14 +238,6 @@ The MDE indicators API returns ALL custom indicators in the tenant (potentially 
 - ❌ Assuming "large result = no match" without filtering
 - ❌ Reporting "Not in IOC list" without verifying the actual content
 - ❌ Skipping processing due to result size
-
-**Alternative — Filtered Query (if supported):**
-
-```
-az rest --method GET --url "https://api.securitycenter.microsoft.com/api/indicators?\$filter=indicatorValue+eq+'<IOC_VALUE>'" --resource "https://api.securitycenter.microsoft.com"
-```
-
-> **Note:** OData filtering may not work on all MDE API versions. If the filtered query returns an error, fall back to the unfiltered query and filter manually.
 
 ---
 

@@ -10,6 +10,8 @@ description: >
   KQL queries run against Log Analytics tables through the Azure Monitor MCP tool.
 ---
 
+> 📏 **Result & Token Guardrails** — See [shared-guardrails.md](../shared-guardrails.md) for universal result-cap, time-window, and aggregation rules that apply to all skills.
+
 > ⚠️ **CRITICAL OUTPUT RULE — ALWAYS PRESENT RESULTS INLINE FIRST**
 >
 > The investigation results MUST be presented **inline in chat** as the primary output. This is mandatory and non-negotiable.
@@ -241,6 +243,14 @@ Before running its first applicable script, the skill instructions require the a
 7. **⛔ ALWAYS use `RunAzCliReadCommands` for Graph API calls** — NEVER use `RunAzCliWriteCommands` for `az rest --method GET` requests. The two tools have DIFFERENT authorization flows: `RunAzCliReadCommands` authenticates via Managed Identity directly (works with Application permissions). `RunAzCliWriteCommands` falls back to On-Behalf-Of (OBO) flow when MI fails, and OBO requires Delegated permissions that are NOT configured. Using the wrong tool causes 403 errors.
 8. **⛔ ALWAYS run `enrich_ips.py` for IP enrichment** — This is MANDATORY, not optional. Before running: (a) try reading API tokens from Key Vault via `RunAzCliReadCommands`, (b) if Key Vault unavailable, ASK the user for API tokens, (c) if no tokens at all, run anyway — Shodan InternetDB (free, no key) still provides open ports, CVEs, and tags. Q13 (KQL) and Q11 (ThreatIntelIndicators) are SUPPLEMENTS, not replacements.
 9. **⛔ ALWAYS generate the complete formatted report** — Every investigation MUST produce the full report following the [Markdown Report Template](#markdown-report-template), with ALL sections populated (use `✅ No <X> detected...` for empty sections). Never skip the report, never abbreviate, never omit sections.
+10. **⛔ ALWAYS cap KQL results** — Every KQL query MUST include a `| take N` or `| top N` clause:
+    - Sign-in queries (Q3, Q3b, Q3c, Q3d): already capped at `take 5` — do not increase.
+    - IP extraction (Q1): already capped at `take 8` + `take 10` — do not increase.
+    - Audit/Office/DLP (Q4, Q5, Q10): capped at `take 10` / `take 5` — verify before execution.
+    - Incidents (Q6): capped at `take 10` — do not increase.
+    - UEBA (Q12): no cap needed (summarized by template).
+    - IP context (Q13): no cap needed (scoped to target_ips array).
+    If any query does not have a cap, append `| take 50` before execution.
 
 ### User Context Retrieval Strategy
 
