@@ -535,7 +535,7 @@ not sufficient evidence.
 | **Outlook Tools (Office 365 Outlook)** | `Send an HTML email to <test-mailbox> with subject "Azure SRE Agent connector test" and body "<strong>Outlook connector test passed.</strong>"` | The send tool succeeds and the message arrives with rendered HTML. |
 | **Microsoft Teams** | `Post an HTML message to <test-channel-or-chat> stating "Azure SRE Agent Teams connector test passed."` | The post tool succeeds and the message appears in the intended test destination. |
 | **Log Analytics Workspace** | `Using the connected Log Analytics workspace, list five available tables and return the workspace name and resource group.` | Results come from the intended Sentinel workspace rather than only the agent telemetry workspace. |
-| **kql-search-mcp** | `Use get_table_schema for SigninLogs, then use validate_kql_query to validate "SigninLogs | take 5".` | Both MCP tools succeed and return schema and validation results without exposing the GitHub token. |
+| **kql-search-mcp** | `Use get_table_schema for SigninLogs, then use validate_kql_query to validate "SigninLogs \| take 5".` | Both MCP tools succeed and return schema and validation results without exposing the GitHub token. |
 | **ms-learn-mcp** | `Use Microsoft Learn to find the official Azure SRE Agent managed connectors documentation. Return its title and URL.` | The result points to an official `learn.microsoft.com` page and shows an MCP tool call. |
 | **GitHub MCP** (when configured) | `Read the default branch and list the five most recent commits in <customer-org>/<customer-repo>. Do not create or modify anything.` | The MCP server reads the intended repository. Run a separate branch-and-PR test only in a disposable test repository when write tools are enabled. |
 
