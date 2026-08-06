@@ -157,9 +157,9 @@ The agent runtime does NOT receive the authenticated user's identity claims (UPN
 
 **Resolution — UPN Discovery Cascade:**
 
-When a task requires the authenticated user's UPN and it is not already known (not in memory, not provided in the prompt), the agent MUST follow this cascade:
+When a task requires the authenticated user's UPN, the agent MUST resolve it again in every new conversation session. A UPN explicitly provided or already discovered in the current session may be reused only within that session. The agent MUST NOT treat a UPN from persistent memory as the current user's identity because agent memory is shared across all sessions and users of that agent.
 
-1. **Check agent memory** — If the UPN was previously discovered and saved to `memories/synthesizedKnowledge/`, use it (but verify it's still current if the memory is old).
+1. **Check the current session only** — If the user explicitly provided their UPN, or it was already discovered, earlier in the current conversation, use it. Persistent agent memory may contain a roster of known operators, but it cannot establish which operator is participating in the current session.
 
 2. **If the Office 365 `GetEmails` tool is available** — Read exactly 1 email from the Sent Items folder with minimal token cost:
   ```
@@ -180,10 +180,11 @@ When a task requires the authenticated user's UPN and it is not already known (n
 3. **If the Office 365 `GetEmails` tool is NOT available** — Ask the user explicitly:
   > "This task requires your identity. What is your UPN (e.g., user@contoso.com)?"
 
-4. **After successful discovery** — Save the UPN to agent memory (`memories/synthesizedKnowledge/team.md`) so it does not need to be rediscovered in future sessions.
+4. **After successful discovery** — Use the UPN for the remainder of the current session. It may be saved to `memories/synthesizedKnowledge/team.md` as information about a known operator, but it MUST be rediscovered or explicitly confirmed in the next session before being used as the identity behind "me" or "my".
 
 **NEVER:**
 - Guess the UPN from the tenant name or other indirect signals
+- Assume that a UPN stored in persistent agent memory belongs to the user in the current session
 - Use `/me` endpoints with the managed identity and present the result as the user's identity
 - Skip the discovery and silently use a placeholder
 

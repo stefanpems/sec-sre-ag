@@ -623,6 +623,8 @@ The skills have been tested extensively and several **platform constraints, KQL 
 
 **First-time setup:** After connecting this repository to your agent, ask it to seed its memory with these learnings in the first conversation:
 
+> **IMPORTANT — MANUAL ACTION REQUIRED:** This step is NOT performed automatically by the deployment process or by the agent. You MUST manually copy, paste, and send the prompt below in the agent's first conversation.
+
 ```
 Read the file codeRefs/sec-sre-ag/docs/known-issues.md and save its contents 
 to your memory as operational knowledge. Organize it into your debugging index 
