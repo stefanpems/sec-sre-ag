@@ -101,6 +101,38 @@ The output JSON is always compact (`ensure_ascii=False`, no extra spaces), ensur
 
 **Affects:** `incident-comment`, and any skill that needs to PUT/POST large JSON payloads via `RunAzCliWriteCommands`.
 
+### 1.8 Graph API `$expand=members` May Trigger 413 (RequestEntityTooLarge)
+
+When a tenant has many directory roles with large membership lists, the single-call approach `directoryRoles?$expand=members(...)` can exceed the Cosmos DB document size limit in the SRE Agent platform, returning HTTP 413.
+
+**Workaround:** Fall back to two-step collection — first list roles without `$expand`, then query `directoryRoles/{id}/members` for each role individually and combine results.
+
+**Affects:** `identity-posture` (Step 2: Directory Roles).
+
+### 1.9 Graph API `$expand` on PIM Endpoint Returns InvalidFilter
+
+The `roleEligibilityScheduleInstances` endpoint (v1.0) does not support `$expand=principal,roleDefinition` reliably. Returns `InvalidFilter: The filter is invalid.`
+
+**Workaround:** Call the endpoint without `$expand`. The base response still contains `principalId` and `roleDefinitionId` fields.
+
+**Affects:** `identity-posture` (Step 3: PIM Eligible Roles).
+
+### 1.10 `defaultMfaMethod` Property Does Not Exist on `userRegistrationDetails`
+
+The Graph API v1.0 `userRegistrationDetails` resource type does NOT include a `defaultMfaMethod` property. Including it in `$select` causes `BadRequest: Could not find a property named 'defaultMfaMethod' on type 'microsoft.graph.userRegistrationDetails'.`
+
+**Workaround:** Remove `defaultMfaMethod` from the `$select` parameter. Use `methodsRegistered` array to infer method distribution.
+
+**Affects:** `identity-posture` (Step 6: MFA Registration).
+
+### 1.11 Risky Users API Max Page Size Is 500
+
+The `identityProtection/riskyUsers` endpoint has a maximum `$top` value of 500 (not 999). Using `$top=999` returns `BadRequest: Invalid page size specified: '999'. Must be between 1 and 500 inclusive.`
+
+**Workaround:** Use `$top=500` and follow `@odata.nextLink` for pagination if needed.
+
+**Affects:** `identity-posture` (Step 4: Risky Users).
+
 ---
 
 ## 2. KQL Pitfalls

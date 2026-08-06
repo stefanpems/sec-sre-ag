@@ -116,6 +116,12 @@ az rest --method GET --uri "https://graph.microsoft.com/v1.0/directoryRoles?$exp
 - User Administrator
 - Azure AD Joined Device Local Administrator
 
+**Fallback (413 RequestEntityTooLarge):**
+Se `$expand=members` genera una risposta troppo grande (413), l'agente deve:
+1. Chiamare `GET /v1.0/directoryRoles?$select=id,displayName,roleTemplateId` per ottenere la lista ruoli
+2. Per ciascun ruolo, chiamare `GET /v1.0/directoryRoles/{id}/members?$select=id,userPrincipalName,displayName`
+3. Ricostruire la struttura combinata con campo `members` per ogni ruolo
+
 ---
 
 ## Step 3: PIM Eligible Role Assignments
@@ -137,6 +143,9 @@ az rest --method GET --uri "https://graph.microsoft.com/v1.0/roleManagement/dire
 - **PIM-eligible** (Step 3) → must be activated → lower risk
 - **Both** → has permanent AND eligible roles → review if permanent is needed
 
+**Fallback (InvalidFilter):**
+Se `$expand=principal,roleDefinition` restituisce InvalidFilter, rimuovere `$expand` e chiamare l'endpoint senza espansione. I dati base (`principalId`, `roleDefinitionId`) sono comunque presenti nella risposta.
+
 ---
 
 ## Step 4: Risky Users (Identity Protection)
@@ -144,7 +153,7 @@ az rest --method GET --uri "https://graph.microsoft.com/v1.0/roleManagement/dire
 **Graph endpoint:** `GET /v1.0/identityProtection/riskyUsers`
 
 ```
-az rest --method GET --uri "https://graph.microsoft.com/v1.0/identityProtection/riskyUsers?$select=id,userPrincipalName,userDisplayName,riskLevel,riskState,riskDetail,riskLastUpdatedDateTime,isDeleted,isProcessing&$top=999"
+az rest --method GET --uri "https://graph.microsoft.com/v1.0/identityProtection/riskyUsers?$select=id,userPrincipalName,userDisplayName,riskLevel,riskState,riskDetail,riskLastUpdatedDateTime,isDeleted,isProcessing&$top=500"
 ```
 
 **Key fields:**
@@ -190,7 +199,7 @@ Report this as a coverage gap.
 **Graph endpoint:** `GET /v1.0/reports/authenticationMethods/userRegistrationDetails`
 
 ```
-az rest --method GET --uri "https://graph.microsoft.com/v1.0/reports/authenticationMethods/userRegistrationDetails?$select=id,userPrincipalName,userDisplayName,isMfaRegistered,isMfaCapable,isPasswordlessCapable,isSsprRegistered,isSsprEnabled,isSsprCapable,methodsRegistered,defaultMfaMethod&$top=999"
+az rest --method GET --uri "https://graph.microsoft.com/v1.0/reports/authenticationMethods/userRegistrationDetails?$select=id,userPrincipalName,userDisplayName,isMfaRegistered,isMfaCapable,isPasswordlessCapable,isSsprRegistered,isSsprEnabled,isSsprCapable,methodsRegistered&$top=500"
 ```
 
 **Key fields:**
@@ -201,7 +210,6 @@ az rest --method GET --uri "https://graph.microsoft.com/v1.0/reports/authenticat
 | `isMfaCapable` | User is capable of MFA (registered + enabled) |
 | `isPasswordlessCapable` | User can sign in without a password |
 | `methodsRegistered` | Array: microsoftAuthenticatorPush, fido2, phoneAuthentication, etc. |
-| `defaultMfaMethod` | The default MFA method used |
 
 **Post-processing:**
 - Calculate MFA coverage: `countif(isMfaRegistered) / total users`

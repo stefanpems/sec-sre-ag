@@ -209,15 +209,26 @@ Execute these **6 steps in order** (see [get-entra-posture-data.md](get-entra-po
 | 1 | Users | `az rest --method GET --uri "https://graph.microsoft.com/v1.0/users?$select=id,userPrincipalName,displayName,mail,accountEnabled,createdDateTime,department,jobTitle,userType,onPremisesSyncEnabled,onPremisesDistinguishedName,onPremisesDomainName,lastPasswordChangeDateTime,passwordPolicies,signInActivity&$top=999&$count=true" --headers "ConsistencyLevel=eventual"` | `users_<ts>.json` |
 | 2 | Directory Roles | `az rest --method GET --uri "https://graph.microsoft.com/v1.0/directoryRoles?$expand=members($select=id,userPrincipalName,displayName)"` | `directory_roles_<ts>.json` |
 | 3 | PIM Eligible | `az rest --method GET --uri "https://graph.microsoft.com/v1.0/roleManagement/directory/roleEligibilityScheduleInstances?$expand=principal($select=id,userPrincipalName,displayName),roleDefinition($select=displayName)"` | `pim_eligible_roles_<ts>.json` |
-| 4 | Risky Users | `az rest --method GET --uri "https://graph.microsoft.com/v1.0/identityProtection/riskyUsers?$select=id,userPrincipalName,userDisplayName,riskLevel,riskState,riskDetail,riskLastUpdatedDateTime,isDeleted,isProcessing&$top=999"` | `risky_users_<ts>.json` |
+| 4 | Risky Users | `az rest --method GET --uri "https://graph.microsoft.com/v1.0/identityProtection/riskyUsers?$select=id,userPrincipalName,userDisplayName,riskLevel,riskState,riskDetail,riskLastUpdatedDateTime,isDeleted,isProcessing&$top=500"` | `risky_users_<ts>.json` |
 | 5 | Deleted Users | `az rest --method GET --uri "https://graph.microsoft.com/v1.0/directory/deletedItems/microsoft.graph.user?$select=id,userPrincipalName,displayName,deletedDateTime,onPremisesSyncEnabled&$top=999"` | `deleted_users_<ts>.json` |
-| 6 | MFA Registration | `az rest --method GET --uri "https://graph.microsoft.com/v1.0/reports/authenticationMethods/userRegistrationDetails?$select=id,userPrincipalName,userDisplayName,isMfaRegistered,isMfaCapable,isPasswordlessCapable,isSsprRegistered,isSsprEnabled,isSsprCapable,methodsRegistered,defaultMfaMethod&$top=999"` | `mfa_registration_<ts>.json` |
+| 6 | MFA Registration | `az rest --method GET --uri "https://graph.microsoft.com/v1.0/reports/authenticationMethods/userRegistrationDetails?$select=id,userPrincipalName,userDisplayName,isMfaRegistered,isMfaCapable,isPasswordlessCapable,isSsprRegistered,isSsprEnabled,isSsprCapable,methodsRegistered&$top=500"` | `mfa_registration_<ts>.json` |
 
 **Error handling per step:**
 - **403 Forbidden:** Log the error, skip the step, proceed to next. Note in summary.
 - **Empty result on Step 1 with signInActivity:** Retry without `signInActivity` in `$select` (needs Entra ID P1).
 - **Rate limiting (429):** Wait 30 seconds, retry once.
 - **Step 1 returns 403:** STOP — fundamental permission missing. Report to user.
+
+**Fallback per Directory Roles (Step 2 — errore 413 RequestEntityTooLarge):**
+Se il comando con `$expand=members` restituisce errore 413 (RequestEntityTooLarge):
+1. Recuperare i ruoli senza `$expand`: `az rest --method GET --uri "https://graph.microsoft.com/v1.0/directoryRoles?$select=id,displayName,roleTemplateId"`
+2. Per ogni ruolo, recuperare i membri separatamente: `az rest --method GET --uri "https://graph.microsoft.com/v1.0/directoryRoles/{role-id}/members?$select=id,userPrincipalName,displayName"`
+3. Combinare i risultati in un unico JSON con struttura `{"value": [{"displayName": "...", "id": "...", "roleTemplateId": "...", "members": [...]}]}` e salvare come `directory_roles_<ts>.json`.
+
+**Fallback per PIM Eligible (Step 3 — errore InvalidFilter):**
+Se il comando con `$expand=principal,roleDefinition` restituisce InvalidFilter:
+1. Rimuovere `$expand` e chiamare: `az rest --method GET --uri "https://graph.microsoft.com/v1.0/roleManagement/directory/roleEligibilityScheduleInstances"`
+2. Salvare il risultato come `pim_eligible_roles_<ts>.json`. Lo script di analisi gestisce entrambi i formati (con e senza expand).
 
 **Step 0.3 — Validate collected data:**
 
@@ -448,6 +459,10 @@ az rest --method POST \
 ### 12. `Tags` Column Is String, Not Dynamic (KQL SEM0218)
 **Problem:** The `Tags` column in `IdentityInfo` is stored as `string`, not `dynamic`. Using `array_index_of(Tags, "Sensitive")` fails at KQL compile time with `SEM0218: array_index_of(): argument #1 must be a dynamic`. The `iff()` wrapper does NOT prevent compile-time type validation.
 **Solution:** Always wrap with `todynamic()`: `array_index_of(todynamic(Tags), "Sensitive")`. The same defensive pattern should be applied to `UserAccountControl` inside `iff()` blocks. See KQL-LA4 in [kql-enrichment-queries.md](kql-enrichment-queries.md).
+
+### 13. RunAzCliReadCommands May Not Persist Inline Responses to Disk
+**Problem:** The `RunAzCliReadCommands` tool only persists responses to tool output files when they exceed a certain size threshold. Smaller responses (like MFA data for <100 users) are returned inline but NOT saved to disk. If the agent doesn't save the data immediately after receiving the response, the data is lost and the API call must be repeated.
+**Solution:** After each Graph API call via `RunAzCliReadCommands`, the agent MUST immediately save the response JSON to the appropriate file in `output/identity-posture/` before proceeding to the next step. Do not defer saving to a later step. If the inline response is lost, the agent must re-execute the API call and save immediately.
 
 ---
 

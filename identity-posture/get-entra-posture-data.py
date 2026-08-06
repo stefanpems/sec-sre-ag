@@ -137,8 +137,8 @@ GRAPH_STEPS: list[dict] = [
             "userRegistrationDetails"
             "?$select=id,userPrincipalName,userDisplayName,isMfaRegistered,"
             "isMfaCapable,isPasswordlessCapable,isSsprRegistered,"
-            "isSsprEnabled,isSsprCapable,methodsRegistered,"
-            "defaultMfaMethod&$top=500"
+            "isSsprEnabled,isSsprCapable,methodsRegistered"
+            "&$top=500"
         ),
     },
 ]
