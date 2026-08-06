@@ -9,6 +9,11 @@ drill_down_prompt: 'Run MCP usage monitoring report — Graph/Sentinel/Azure MCP
 >
 > When calling `monitor-client_monitor_workspace_log_query`, the `subscription` parameter is MANDATORY. Without it, the tool returns a 400 error that produces 0 results. Always pass it.
 
+> **⚠️ Token Efficiency — Do NOT read large files into context:**
+> - Pass file paths between steps. Do NOT use `ReadFile` on intermediate artifacts (JSON bodies, HTML reports, query results) unless explicitly debugging.
+> - When inspecting command output, use `head`, `tail`, `grep`, or `jq` via `RunInTerminal` to extract only the fields you need — never dump entire files.
+> - If a step produces a file that the next step consumes, pass the file path directly. The LLM context is expensive; files on disk are free.
+
 # MCP Server Usage Monitoring — Instructions
 
 ## Purpose

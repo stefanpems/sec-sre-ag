@@ -400,11 +400,13 @@ The most important optimization. Datetime predicates use efficient index-based s
 SigninLogs
 | where TimeGenerated > ago(7d)
 | where UserPrincipalName =~ "user@domain.com"
+| take 50
 
 // ❌ Wrong — string filter before datetime
 SigninLogs
 | where UserPrincipalName =~ "user@domain.com"
 | where TimeGenerated > ago(7d)
+| take 50
 ```
 
 #### 2. Use `has` over `contains` for token matching
@@ -449,11 +451,13 @@ DeviceTvmSoftwareVulnerabilities
     | where IsExploitAvailable == true
     | where CvssScore >= 8.0
 ) on CveId
+| take 50
 
 // ❌ Wrong — joins full tables, filters after
 DeviceTvmSoftwareVulnerabilities
 | join kind=inner DeviceTvmSoftwareVulnerabilitiesKB on CveId
 | where IsExploitAvailable == true
+| take 50
 ```
 
 **Join sizing rules:**
@@ -502,6 +506,7 @@ AuditLogs
 | where tostring(TargetResources) has "MyApp"
 | extend Target = tostring(parse_json(tostring(TargetResources[0])).displayName)
 | where Target == "MyApp"
+| take 50
 ```
 
 #### 8. Filter on table columns, not calculated columns
@@ -510,10 +515,15 @@ Filtering on native columns enables index usage; calculated columns force full s
 
 ```kql
 // ✅ Filter on native column
-SecurityEvent | where EventID == 4625
+SecurityEvent
+| where EventID == 4625
+| take 50
 
 // ❌ Filter on calculated column
-SecurityEvent | extend Cat = case(EventID == 4625, "Fail", ...) | where Cat == "Fail"
+SecurityEvent
+| extend Cat = case(EventID == 4625, "Fail", ...)
+| where Cat == "Fail"
+| take 50
 ```
 
 #### 9. Project only needed columns early

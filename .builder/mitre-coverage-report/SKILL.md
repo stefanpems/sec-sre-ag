@@ -3,6 +3,11 @@ name: mitre-coverage-report
 description: 'MITRE ATT&CK Coverage Report — YAML-driven Python pipeline gathers analytic rule MITRE tags, custom detection techniques, SOC Optimization recommendations, and alert/incident operational data via az rest/az monitor/Graph API, writes a deterministic scratchpad, LLM renders the report. Covers tactic-level coverage matrix, technique-level drill-down with rule mapping, coverage gap identification, SOC Optimization threat scenario alignment, untagged rule remediation, ICS/OT technique tracking, and MITRE Coverage Score (5 weighted dimensions). Inline chat and markdown file output.'
 ---
 
+> **⚠️ Token Efficiency — Do NOT read large files into context:**
+> - Pass file paths between steps. Do NOT use `ReadFile` on intermediate artifacts (JSON bodies, HTML reports, query results) unless explicitly debugging.
+> - When inspecting command output, use `head`, `tail`, `grep`, or `jq` via `RunInTerminal` to extract only the fields you need — never dump entire files.
+> - If a step produces a file that the next step consumes, pass the file path directly. The LLM context is expensive; files on disk are free.
+
 # MITRE ATT&CK Coverage Report — Instructions
 
 ## Purpose

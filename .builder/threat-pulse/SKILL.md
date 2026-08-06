@@ -555,6 +555,7 @@ Every `🎬 Take Action` heading MUST be immediately followed by the AI-content 
 EmailEvents
 | where Timestamp > ago(7d)
 | where NetworkMessageId in ("<id1>", "<id2>")
+| take 50
 ```
 
 **💻 Bulk Devices (2+):**
@@ -572,6 +573,7 @@ DeviceFileEvents
 | where Timestamp > ago(7d)
 | where SHA1 == "<hash>" or SHA256 == "<hash>"
 | project DeviceId, DeviceName, SHA1, SHA256, FileName, FolderPath
+| take 50
 ```
 
 **🔗 Bulk Indicators (network-layer IPs):**

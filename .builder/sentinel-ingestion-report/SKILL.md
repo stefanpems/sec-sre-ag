@@ -3,6 +3,11 @@ name: sentinel-ingestion-report
 description: 'Sentinel Ingestion Report — YAML-driven Python pipeline gathers all data via az monitor/az rest/Graph API, writes a deterministic scratchpad, LLM renders the report inline. Covers table-level volume breakdown, tier classification (Analytics/Basic/Data Lake), SecurityEvent/Syslog/CommonSecurityLog deep dives, ingestion anomaly detection (24h and WoW), analytic rule inventory via REST API, rule health via SentinelHealth, detection coverage cross-reference, tier migration candidates with DL-eligibility lookup, license benefit analysis (DfS P2 500MB/server/day, M365 E5 data grant). Output always inline; optional md/html export on request.'
 ---
 
+> **⚠️ Token Efficiency — Do NOT read large files into context:**
+> - Pass file paths between steps. Do NOT use `ReadFile` on intermediate artifacts (JSON bodies, HTML reports, query results) unless explicitly debugging.
+> - When inspecting command output, use `head`, `tail`, `grep`, or `jq` via `RunInTerminal` to extract only the fields you need — never dump entire files.
+> - If a step produces a file that the next step consumes, pass the file path directly. The LLM context is expensive; files on disk are free.
+
 # Sentinel Ingestion Analysis Report — Instructions
 
 ## ⚠️ Environment Constraints — Tool Availability

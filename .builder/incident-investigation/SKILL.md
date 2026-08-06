@@ -18,6 +18,11 @@ drill_down_prompt: 'Investigate incident {entity} — alert details, entity extr
 >
 > When calling `monitor-client_monitor_workspace_log_query`, the `subscription` parameter is MANDATORY. Without it, the tool returns a 400 error that produces 0 results instead of the expected data. Always read the subscription ID from the agent's `<azure_resource_access>` settings and pass it in every call.
 
+> **⚠️ Token Efficiency — Do NOT read large files into context:**
+> - Pass file paths between steps. Do NOT use `ReadFile` on intermediate artifacts (JSON bodies, HTML reports, query results) unless explicitly debugging.
+> - When inspecting command output, use `head`, `tail`, `grep`, or `jq` via `RunInTerminal` to extract only the fields you need — never dump entire files.
+> - If a step produces a file that the next step consumes, pass the file path directly. The LLM context is expensive; files on disk are free.
+
 # Incident Investigation — Monitor MCP + Azure CLI
 
 ## Purpose
@@ -348,6 +353,19 @@ Step 0.6: LOAD cached data:
 
 **Execute Q1 (or Q1b for GUID lookups) from `incident-queries.yaml`.**
 
+#### Date Range Narrowing (MANDATORY after Q1)
+
+After Q1 returns `FirstActivityTime` and `LastActivityTime`, calculate a precise date range for ALL subsequent queries (Q2–Q10 and Phase 2 sub-skill queries):
+
+```
+narrowed_start = FirstActivityTime − 2 days
+narrowed_end   = LastActivityTime + 2 days (or current_date + 2 days, whichever is later)
+```
+
+Pass this narrowed range as the `hours` parameter to Monitor MCP instead of using a blanket `hours=720` (30 days). This reduces data scanned and token consumption significantly.
+
+**Exception:** If the incident is still `Status=Active` with no `ClosedTime`, use `current_date + 2 days` as end.
+
 Retrieve and present:
 
 | Field | Source Column |
@@ -368,11 +386,13 @@ Retrieve and present:
 | **Provider Incident ID** | `ProviderIncidentId` (Defender XDR ID) |
 | **Labels/Tags** | `Labels` |
 
-**Also execute Q10 from `incident-queries.yaml`** to get MITRE Tactics & Techniques.
+**After Q1 disambiguation, execute Q10 with Q2 as described in the Execution Pattern** to get MITRE Tactics & Techniques.
 
 ### 1.2 Incident Alerts
 
 **Execute Q2 from `incident-queries.yaml`.**
+
+> **Token optimization:** Q2 projects `Entities` (a large JSON array per alert, often 2–5 KB each). This field is NOT needed for the alerts table display — entities are extracted separately by Q3/Q5/Q6. The agent SHOULD NOT include `Entities` in the Q2 output presented to the user. If the agent needs raw entity data, it should use Q3 instead.
 
 For each alert, present:
 - Alert name (`AlertName`)
@@ -736,6 +756,7 @@ az monitor log-analytics query --workspace "<workspace_GUID>" --analytics-query 
 | **SecurityAlert** | `Status` field is **immutable** — always "New" | Join with SecurityIncident for real status |
 | **SecurityAlert** | `Tactics` and `Techniques` may be JSON strings | `parse_json()` before extraction |
 | **AlertEvidence** | May not be present in all workspaces | Handle "Failed to resolve table" gracefully |
+| **SigninLogs + AADNonInteractiveUserSignInLogs** | `union` di queste due tabelle fallisce se si proiettano colonne che esistono solo in una delle due | Colonne SICURE per union: `TimeGenerated`, `UserPrincipalName`, `AppDisplayName`, `ResultType`, `ResultDescription`, `Location`, `ConditionalAccessStatus`, `UserAgent`, `ResourceDisplayName`, `IPAddress`, `ClientAppUsed`, `AuthenticationRequirement`. Colonne NON SICURE (solo in SigninLogs): `DeviceDetail`, `MfaDetail`, `NetworkLocationDetails`. Per queste, usare query separate per tabella o `column_ifexists()` |
 
 ---
 
@@ -761,24 +782,47 @@ All incident-related queries are stored in **`incident-queries.yaml`** in this d
 
 ### Execution Pattern
 
-**Phase 1 Step 1 — Metadata + MITRE (run in parallel):**
+**Phase 1 Step 1 — Metadata (run ALONE, disambiguate before proceeding):**
 ```
-Q1 (or Q1b) + Q10
-```
-
-**Phase 1 Step 2 — Alerts:**
-```
-Q2
+Q1 (or Q1b)
 ```
 
-**Phase 1 Step 3 — Assets + Evidences (run ALL in parallel):**
+After Q1 returns:
+- If multiple rows match, apply the disambiguation rule: prefer the row where `ProviderIncidentId` matches the user-provided ID. Only fall back to `IncidentNumber` if no `ProviderIncidentId` match exists.
+- Extract the resolved `IncidentNumber` (e.g., `1`) from the winning row.
+- Extract `FirstActivityTime` and `LastActivityTime` for date range narrowing (see Step 2).
+- Extract `alertsCount` from `AdditionalData` JSON for complexity profiling (see below).
+- Use the resolved `IncidentNumber` (NOT the user-provided ID) as `<RESOLVED_INCIDENT_NUMBER>` in ALL subsequent queries Q2–Q10.
+
+**Phase 1 Step 2 — Alerts + MITRE (run in parallel, using resolved IncidentNumber):**
 ```
-Q3 + Q4 + Q5 + Q6 + Q7 + Q8 + Q9
+Q2 + Q10    (replace <INCIDENT_ID> with <RESOLVED_INCIDENT_NUMBER>)
 ```
+
+**Phase 1 Step 3 — Assets + Evidences (run ALL in parallel, using resolved IncidentNumber):**
+```
+Q3 + Q4 + Q5 + Q6 + Q7 + Q8 + Q9    (replace <INCIDENT_ID> with <RESOLVED_INCIDENT_NUMBER>)
+```
+
+### Incident Complexity Profiling (after Q1)
+
+After Q1 returns, extract `alertsCount` from the `AdditionalData` JSON field:
+
+```kql
+parse_json(AdditionalData).alertsCount
+```
+
+Use this value to optimize subsequent queries:
+
+| alertsCount | Profilo | Azione |
+|-------------|---------|--------|
+| 1 | Incidente semplice | Skip Q4 (AlertEvidence) se la tabella non è mai stata usata. Esegui Q5+Q6 (users/devices) come priorità, Q7+Q8+Q9 solo se Q5/Q6 restituiscono risultati |
+| 2–10 | Incidente medio | Esegui tutte le query Q3–Q9 in parallelo |
+| >10 | Incidente complesso | Esegui tutte le query Q3–Q9 in parallelo. Aggiungi `| take 50` a Q3 per evitare esplosioni di entità |
 
 ### How to Use
 
-Read the query from `incident-queries.yaml`, replace the `<INCIDENT_ID>` placeholder with the actual incident number, and execute via `monitor-client_monitor_workspace_log_query`.
+Read Q1 from `incident-queries.yaml` and replace `<INCIDENT_ID>` with the user-provided ID. After disambiguation, replace `<RESOLVED_INCIDENT_NUMBER>` in Q2–Q10 with the winning row's `IncidentNumber`, then execute via `monitor-client_monitor_workspace_log_query`.
 
 **Example:**
 ```
@@ -911,127 +955,12 @@ Add +1 day to user's specified end date.
 ---
 
 ## Error Handling
-
-### Common Issues and Solutions
-
-| Issue | Solution |
-|-------|----------|
-| **Incident not found in SecurityIncident** | Verify incident ID format; try both `IncidentNumber` and `ProviderIncidentId`; expand time range |
-| **SecurityIncident table not found** | Table may not be synced to this workspace; check workspace configuration |
-| **AlertEvidence table not found** | Table requires M365D data connector; proceed without evidence data |
-| **No alerts returned from Q2** | Check if `AlertIds` field is populated in the SecurityIncident record; try Q3 entities approach |
-| **User Object ID not found** | Verify UPN is correct; try Graph API via `RunAzCliReadCommands` or KQL Q0 fallback |
-| **Device investigation fails** | Verify device exists in DeviceInfo table; try hostname variations |
-| **IoC investigation timeout** | Reduce date range; check IoC format |
-| **MDE API 403 error** | Check `RunAzCliReadCommands` permissions; fall back to KQL-only mode |
-
-### Table Availability Check
-
-If a query returns "Failed to resolve table", the table is not available in the workspace. Handle gracefully:
-
-```
-IF SecurityIncident fails:
-    → Report: "SecurityIncident table is not available. Ensure the Sentinel data connector is enabled."
-    → STOP investigation
-
-IF AlertEvidence fails:
-    → Report: "AlertEvidence table not available — evidence data will be limited."
-    → Continue with SecurityAlert Entities extraction only (Q3)
-
-IF DeviceNetworkEvents/DeviceProcessEvents/etc. fail:
-    → Report: "Advanced Hunting tables not synced to Log Analytics."
-    → Continue with available tables
-```
-
-### Time Window Limits
-
-| Tool | Time Window Options |
-|------|---------------------|
-| User Investigation | 30 days (Comprehensive), 7 days (Standard), 1 day (Quick) |
-| Computer Investigation | 30 days (Comprehensive), 7 days (Standard), 1 day (Quick) |
-| IoC Investigation | 30 days (Comprehensive), 7 days (Standard), 1 day (Quick) |
+See [error-handling.md](error-handling.md) for the full error/solution table.
 
 ---
 
 ## Example Investigation Workflow
-
-**User Request:** "Investigate incident 12345"
-
-### Phase 0: Cache Check
-```
-[00:00] Checking for cached investigation data...
-        → Found: temp/investigation_incident_12345_20260601_100000.json
-        → Age: 2h 30m (within 4h threshold)
-        → User prompt "Investigate incident 12345" — no implicit redo/cache keyword
-        → Asking user whether to use cached data or start fresh...
-        → User selected: "Repeat from scratch"
-        → Proceeding with fresh investigation
-```
-
-### Phase 1: Incident Description
-```
-[00:05] Starting fresh incident investigation for ID: 12345
-
-Step 1: Running Q1 (metadata) + Q10 (MITRE) in parallel via Monitor MCP...
-Step 2: Running Q2 (alerts) via Monitor MCP...
-Step 3: Running Q3-Q9 (entities, evidences) in parallel via Monitor MCP...
-
-### Incident Metadata
-- **Title:** Multi-stage attack with credential theft
-- **Severity:** High
-- **Status:** Active
-- **Classification:** TruePositive
-- **Created:** 2026-01-20T10:30:00Z
-- **Provider Incident ID:** 12345 (Defender XDR)
-- **MITRE Tactics:** Initial Access, Credential Access, Lateral Movement
-
-### Incident Alerts
-| # | Alert Name | Severity | Status | Tactics | Last Activity |
-|---|------------|----------|--------|---------|---------------|
-| 1 | Suspicious sign-in from unusual location | High | New | InitialAccess | 2026-01-23 |
-| 2 | Credential theft attempt detected | High | New | CredentialAccess | 2026-01-22 |
-| ... | ... | ... | ... | ... | ... |
-
-### Incident Assets
-**Users:**
-| UPN | Display Name | Alert Count |
-|-----|-------------|-------------|
-| jsmith@contoso.com | John Smith | 3 |
-| admin@contoso.com | Admin Account | 2 |
-
-**Devices:**
-| Hostname | OS | Alert Count |
-|----------|-----|-------------|
-| WORKSTATION-01 | Windows | 4 |
-| LAPTOP-EXEC | Windows | 2 |
-
-### Incident Evidences
-**IPs (after filtering):**
-- `203[.]0[.]113[.]42` (3 alerts — C2 communication)
-- `198[.]51[.]100[.]10` (2 alerts — Data exfiltration)
-
-**URLs (after filtering):**
-- `hxxps://evil-site[.]com/payload[.]exe` (Malicious)
-
-[01:30] Phase 1 completed (90 seconds)
-```
-
-### Phase 2: Investigation Menu
-```
-Which assets and entities involved in the incident should be investigated in depth?
-
-1. 👤 jsmith@contoso.com (John Smith) — 3 alerts
-2. 👤 admin@contoso.com (Admin Account) — 2 alerts
-3. 💻 WORKSTATION-01 — 4 alerts
-4. 💻 LAPTOP-EXEC — 2 alerts
-5. 🌐 203[.]0[.]113[.]42 — 3 alerts
-6. 🌐 198[.]51[.]100[.]10 — 2 alerts
-7. 🔗 hxxps://evil-site[.]com/payload[.]exe
-
-Select by number/name, type "all" to investigate everything.
-```
-
-[Investigation continues following sub-skills...]
+See [examples.md](examples.md) for the full example workflow.
 
 ---
 

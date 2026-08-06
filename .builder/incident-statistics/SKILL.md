@@ -26,6 +26,11 @@ description: >
 >
 > All 7 query results and their analysis MUST be presented inline in chat as the primary output. Chart images and HTML reports are supplements generated only on explicit user request. Never skip the inline statistical summary.
 
+> **⚠️ Token Efficiency — Do NOT read large files into context:**
+> - Pass file paths between steps. Do NOT use `ReadFile` on intermediate artifacts (JSON bodies, HTML reports, query results) unless explicitly debugging.
+> - When inspecting command output, use `head`, `tail`, `grep`, or `jq` via `RunInTerminal` to extract only the fields you need — never dump entire files.
+> - If a step produces a file that the next step consumes, pass the file path directly. The LLM context is expensive; files on disk are free.
+
 # Incident Statistics Skill
 
 ## Purpose
