@@ -22,6 +22,7 @@ required for customer-owned Azure SRE Agent deployments.
 |---|---|
 | [Skills](#skills) | Supported security operations use cases, capabilities, and example prompts |
 | [Setup](#setup) | Customer repository, agent creation, connectors, skill deployment, IDs, permissions, RBAC, and data prerequisites |
+| [Validation Tests](#validation-tests) | Basic connector checks and smoke tests for every deployed skill |
 | [Sandbox Architecture & Script Retrieval](#sandbox-architecture--script-retrieval) | Code Access, file resolution, script execution, and runtime configuration behavior |
 | [Repository Structure](#repository-structure) | Separation between runtime scripts, shared code, and Skill Builder content |
 | [Configuration](#configuration) | Generated `config.json` schema and value sources |
@@ -514,6 +515,63 @@ and behavior expectations as you see fit.
 ```
 
 This is a one-time operation — the agent remembers across threads. See the guide's [full instructions](docs/known-issues.md#using-this-guide-with-the-agent) for details.
+
+---
+
+## Validation Tests
+
+Run these tests after initial setup and after connector, permission, or skill
+changes. Replace every placeholder with a customer test resource. Use a
+nonproduction mailbox, Teams destination, device, user, and Sentinel incident
+where a test causes an external action. Confirm the tool card reports success
+and verify the result in the target system; a plausible chat response alone is
+not sufficient evidence.
+
+### Connector smoke tests
+
+| Connector or integration | Test prompt | Expected result |
+|---|---|---|
+| **Code Access** | `Read codeRefs/<customer-repo>/README.md and return its H1 heading and the names of its top-level directories. Do not modify any files.` | The answer matches the connected customer repository and cites the retrieved file. |
+| **Outlook Tools (Office 365 Outlook)** | `Send an HTML email to <test-mailbox> with subject "Azure SRE Agent connector test" and body "<strong>Outlook connector test passed.</strong>"` | The send tool succeeds and the message arrives with rendered HTML. |
+| **Microsoft Teams** | `Post an HTML message to <test-channel-or-chat> stating "Azure SRE Agent Teams connector test passed."` | The post tool succeeds and the message appears in the intended test destination. |
+| **Log Analytics Workspace** | `Using the connected Log Analytics workspace, list five available tables and return the workspace name and resource group.` | Results come from the intended Sentinel workspace rather than only the agent telemetry workspace. |
+| **kql-search-mcp** | `Use get_table_schema for SigninLogs, then use validate_kql_query to validate "SigninLogs | take 5".` | Both MCP tools succeed and return schema and validation results without exposing the GitHub token. |
+| **ms-learn-mcp** | `Use Microsoft Learn to find the official Azure SRE Agent managed connectors documentation. Return its title and URL.` | The result points to an official `learn.microsoft.com` page and shows an MCP tool call. |
+| **GitHub MCP** (when configured) | `Read the default branch and list the five most recent commits in <customer-org>/<customer-repo>. Do not create or modify anything.` | The MCP server reads the intended repository. Run a separate branch-and-PR test only in a disposable test repository when write tools are enabled. |
+
+For Outlook attachment validation, use the complete procedure in
+[`docs/email-html-report.md`](docs/email-html-report.md). For Teams channel,
+group-chat, direct-message, and self-message payload validation, use
+[`docs/teams-delivery.md`](docs/teams-delivery.md).
+
+### Skill smoke tests
+
+The prompts below exercise the minimum recognizable workflow for each deployed
+skill. Some skills depend on licensed products or populated tables; a clear
+prerequisite error is acceptable only when the corresponding dependency is
+intentionally unavailable. Unexpected tool, permission, schema, or file errors
+must be resolved before production use.
+
+| Skill | Smoke-test prompt | Pass criteria |
+|---|---|---|
+| `computer-investigation` | `Use computer-investigation to investigate test device <device-name> for the last 24 hours and summarize device identity, logons, processes, network activity, and vulnerabilities.` | The skill resolves the device and returns time-bounded evidence or clearly identifies the missing MDE prerequisite. |
+| `identity-posture` | `Use identity-posture to run an organization identity posture assessment and generate the HTML report.` | Graph and Log Analytics collection completes, posture findings are scored, and an HTML report is created. |
+| `incident-comment` | `Use incident-comment to post "Azure SRE Agent incident-comment smoke test" to nonproduction Sentinel incident <incident-id>.` | The exact text appears once in the selected test incident's activity log. |
+| `incident-investigation` | `Use incident-investigation to investigate nonproduction incident <incident-id> and summarize its alerts, users, devices, indicators, and timeline.` | The incident is resolved and correlated evidence is returned without modifying it. |
+| `incident-listing` | `Use incident-listing to list incidents modified in the last 24 hours, ordered by severity and alert count.` | The output contains the expected incident fields and excludes documented phantom incidents. |
+| `incident-statistics` | `Use incident-statistics to generate SOC incident statistics for the last 30 days, including severity, status, MTTA, MTTR, assignees, and charts.` | Metrics and charts are generated from the intended workspace without KQL schema errors. |
+| `ioc-investigation` | `Use ioc-investigation to investigate test indicator <ip-domain-url-or-hash> for the last 7 days and report internal matches and available threat intelligence.` | The indicator is validated, relevant tables are queried, and unavailable optional enrichment is identified explicitly. |
+| `kql-query-authoring` | `Use kql-query-authoring to create and validate a Sentinel query that returns five failed interactive sign-ins from SigninLogs in the last 24 hours.` | The result uses valid columns and operators, includes the final KQL, and reports schema and syntax validation. |
+| `mcp-usage-monitoring` | `Use mcp-usage-monitoring to summarize MCP activity for the last 7 days by user, server type, and operation.` | The skill returns usage evidence or clearly reports that the optional diagnostic tables are not enabled. |
+| `mitre-coverage-report` | `Use mitre-coverage-report to generate the current MITRE ATT&CK coverage report and identify the five highest-priority gaps.` | Detection content is mapped to ATT&CK and the HTML report is generated with prioritized gaps. |
+| `sentinel-ingestion-report` | `Use sentinel-ingestion-report to analyze ingestion for the last 7 days and generate the HTML report with top tables, trends, anomalies, and tier recommendations.` | Workspace ingestion is queried and the report is generated without table or tier-classification errors. |
+| `threat-pulse` | `Run threat-pulse for the last 24 hours and return the prioritized cross-domain security dashboard with recommended follow-up skills.` | All available domains are assessed and findings are prioritized with evidence and follow-up actions. |
+| `user-investigation` | `Use user-investigation to investigate test user <user-principal-name> for the last 7 days and summarize identity, sign-ins, audit events, risk, and related incidents.` | The user is resolved and time-bounded identity and activity evidence is returned or a specific missing-data prerequisite is reported. |
+
+Record the date, agent version, repository commit, connector status, tester, and
+outcome for each test. Re-run the affected rows after changing OAuth accounts,
+managed identities, RBAC, Graph permissions, MCP credentials, selected tools,
+Skill Builder content, or repository scripts.
 
 ---
 
