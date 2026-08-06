@@ -229,6 +229,33 @@ Follow the detailed guide for exact fields, PAT permissions, governance
 settings, validation prompts, and the required response when a credential is
 exposed.
 
+#### Deploy or update skills
+
+Use [`.builder/deploy/deploy_skills.py`](.builder/deploy/deploy_skills.py) both
+for the initial creation of the agent's custom skills and for every subsequent
+update. The `deploy` command is idempotent: it sends a `PUT` for each selected
+skill, creating it when absent and replacing the existing skill definition and
+supporting files when present.
+
+```bash
+cd .builder/deploy
+python deploy_skills.py deploy --dry-run
+python deploy_skills.py deploy
+python deploy_skills.py list
+```
+
+To update only selected skills, pass their folder names:
+
+```bash
+python deploy_skills.py deploy --skills identity-posture,incident-investigation
+```
+
+The deployer uploads only Skill Builder content from `.builder/<skill>/`. Python
+runtime scripts remain in the top-level skill folders and are obtained through
+Code Access; they must not be copied into `.builder`. See the
+[deployment tool guide](.builder/deploy/README.md) for target configuration,
+cross-tenant deployment, and delete operations.
+
 ### D. Discover the required IDs
 
 Run [`setup/discover-setup-ids.sh`](setup/discover-setup-ids.sh) from **Azure Cloud Shell (Bash)** before assigning permissions. The script uses read-only Azure CLI commands to list the values required by the assignment scripts:
