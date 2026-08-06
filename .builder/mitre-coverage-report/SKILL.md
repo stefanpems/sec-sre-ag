@@ -177,7 +177,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
 
 **Procedure:**
 
-1. **Check:** Verify that `config.json` exists at the workspace root and contains a non-empty `sentinel_workspace_id` value. If it does, skip to step 3.
+1. **Check:** Verify that `config.json` exists at the workspace root and that all required fields are non-empty: `tenant_name`, `sentinel_workspace_id`, `subscription_id`, `azure_mcp.subscription_id`, `azure_mcp.resource_group`, and `azure_mcp.workspace_name`. If the file is complete, proceed to step 3.
 
 2. **If `config.json` is missing or incomplete**, create it:
    a. **Ask the user** for the tenant name using AskUserQuestion with header "Tenant" and question: "What is your tenant name? (e.g., contoso.onmicrosoft.com or contoso.it)?"
@@ -185,7 +185,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
       - `subscription_id` → from the `<azure_resource_access>` section (the subscription ID the agent has access to)
       - `sentinel_workspace_id` → from the `<log_analytics_access>` section (the workspace GUID after `workspace=`)
       - `workspace_name` → from the `<log_analytics_access>` section (the workspace name before the colon)
-   c. **Discover** the workspace resource group by running:
+   c. **Discover** the workspace resource group with `RunAzCliReadCommands` (never run `az` in the sandbox terminal), using:
       ```
       az monitor log-analytics workspace show --workspace-name <workspace_name> --subscription <subscription_id> --query resourceGroup -o tsv
       ```
@@ -203,6 +203,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
         "api_tokens": {}
       }
       ```
+   e. **Validate:** Re-read the created file and verify that every required field listed in step 1 is non-empty. If platform settings or discovery did not provide a value, stop and report the missing field; never guess it.
 
 3. **Proceed** with the skill workflow. All Python scripts find `config.json` by walking up from their own directory (max 6 levels), so the workspace root is the correct and expected location.
 
@@ -321,7 +322,7 @@ Apply SKILL-report.md templates to scratchpad data, following Rules A–D. See [
 **Before starting ANY MITRE coverage report:**
 
 1. **Run `invoke_mitre_scan.py`** — this single script handles ALL data gathering (Phases 1-3). The LLM does NOT run queries, transcribe output, or write scratchpad sections
-2. **Ensure `config.json` exists at the workspace root** — the agent auto-generates it from its `<agent_settings>` and `<log_analytics_access>` platform configuration. If the file already exists with a non-empty `sentinel_workspace_id`, skip regeneration. See the sentinel-ingestion-report skill for the full [Config Auto-Generation] procedure. Additionally, confirm workspace parameters with the user if they differ from the agent's defaults.
+2. **Ensure `config.json` is complete at the workspace root** — the agent generates it from its `<agent_settings>` and `<log_analytics_access>` platform configuration when it is missing or any required field is empty. Preserve and reuse an existing complete file. See the sentinel-ingestion-report skill for the full [Config Auto-Generation] procedure. Additionally, confirm workspace parameters with the user if they differ from the agent's defaults.
 3. **ALWAYS ask the user for output mode** if not specified: inline chat summary, markdown file report, or both (default: both)
 4. **ALWAYS ask the user for timeframe** if not specified: the `-Days` parameter controls the alert/incident KQL lookback (Phase 3). Default: 30 days. Phases 1-2 (REST API) are not time-bounded
 5. **ALWAYS use `create_file` for markdown reports** (never use terminal commands)
@@ -481,6 +482,29 @@ Inline chat executive summary + full markdown file.
 > 1. **Inline chat summary** — MITRE Score + top gaps in chat
 > 2. **Markdown file** — detailed report saved to reports/
 > 3. **Both** (recommended) — summary in chat + full report file"
+
+### Sending the HTML Report by Email
+
+If the user asks to send the report by email, use the `office365_SendEmailV2` tool.
+
+> **CRITICAL:** The attachment `ContentBytes` field accepts ONLY a **file path in the workspace** (a plain string), NOT direct base64 content or JSON objects. The tool reads and encodes the file automatically. If the tool returns `isError: false`, the email was sent successfully — DO NOT send it again.
+
+```json
+{
+   "To": "<recipient-email>",
+   "Subject": "<subject with skill name, tenant, and primary result>",
+   "Importance": "High",
+   "Body": "<p>HTML summary of the results.</p>",
+   "Attachments": [
+      {
+         "Name": "<readable-name>.html",
+         "ContentBytes": "reports/<skill-name>/<generated-file-name>.html"
+      }
+   ]
+}
+```
+
+See [docs/email-html-report.md](../../docs/email-html-report.md) for complete documentation of this pattern.
 
 ---
 

@@ -6,8 +6,8 @@ description: >
   as-is; Markdown is converted to HTML optimized for the narrow Activities panel;
   HTML is adapted for single-column display. ALL input content is preserved in full —
   no summarization or truncation — unless the user explicitly requests it.
-  Triggers on: "write comment", "add comment", "post comment", "scrivi commento",
-  "aggiungi commento", "commenta incidente", "comment on incident",
+   Triggers on: "write comment", "add comment", "post comment", "write incident comment",
+   "add incident comment", "comment on incident",
   "post to incident", "annotate incident".
 ---
 
@@ -358,7 +358,7 @@ Step 5: "Comment posted on incident #98765. Content converted from Markdown to H
 
 ### Example 3: Post HTML report
 
-**User:** "Scrivi il report HTML come commento sull'incidente 54321."
+**User:** "Post the HTML report as a comment on incident 54321."
 
 ```
 Step 1: KQL → ProviderIncidentId == "54321" → GUID = "pqr-..."
@@ -367,5 +367,5 @@ Step 3: python3 format_comment.py report.html --output-json body.json
             --output-readable body_readable.txt --api sentinel
         → type=html, chars=8500 (adapted for single column)
 Step 4: Get ARM token → save to file → Python urllib PUT with body from body.json
-Step 5: "Commento pubblicato sull'incidente #54321. HTML adattato per la colonna singola."
+Step 5: "Comment posted on incident #54321. HTML adapted for the single-column layout."
 ```

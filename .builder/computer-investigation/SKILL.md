@@ -80,7 +80,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
 
 **Procedure:**
 
-1. **Check:** Verify that `config.json` exists at the workspace root and contains a non-empty `sentinel_workspace_id` value. If it does, skip to step 3.
+1. **Check:** Verify that `config.json` exists at the workspace root and that all required fields are non-empty: `tenant_name`, `sentinel_workspace_id`, `subscription_id`, `azure_mcp.subscription_id`, `azure_mcp.resource_group`, and `azure_mcp.workspace_name`. If the file is complete, proceed to step 3.
 
 2. **If `config.json` is missing or incomplete**, create it:
    a. **Ask the user** for the tenant name using AskUserQuestion with header "Tenant" and question: "What is your tenant name? (e.g., contoso.onmicrosoft.com or contoso.it)?"
@@ -88,7 +88,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
       - `subscription_id` → from the `<azure_resource_access>` section (the subscription ID the agent has access to)
       - `sentinel_workspace_id` → from the `<log_analytics_access>` section (the workspace GUID after `workspace=`)
       - `workspace_name` → from the `<log_analytics_access>` section (the workspace name before the colon)
-   c. **Discover** the workspace resource group by running:
+    c. **Discover** the workspace resource group with `RunAzCliReadCommands` (never run `az` in the sandbox terminal), using:
       ```
       az monitor log-analytics workspace show --workspace-name <workspace_name> --subscription <subscription_id> --query resourceGroup -o tsv
       ```
@@ -106,6 +106,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
         "api_tokens": {}
       }
       ```
+    e. **Validate:** Re-read the created file and verify that every required field listed in step 1 is non-empty. If platform settings or discovery did not provide a value, stop and report the missing field; never guess it.
 
 3. **Proceed** with the skill workflow. All Python scripts find `config.json` by walking up from their own directory (max 6 levels), so the workspace root is the correct and expected location.
 
@@ -248,17 +249,14 @@ Step 0.3: Calculate the cache age:
 
 Step 0.4: Analyze the user's ORIGINAL prompt for implicit intent:
 
-          REDO KEYWORDS (triggers fresh investigation, any language):
-            "ripeti", "aggiorna", "rifai", "repeat", "redo", "refresh",
-            "update", "re-investigate", "start over", "da capo",
-            "from scratch", "ricomincia", "nuovo", "nuova analisi"
+          REDO KEYWORDS (trigger fresh investigation):
+            "repeat", "redo", "refresh", "update", "re-investigate",
+            "start over", "from scratch", "new analysis"
           → If ANY redo keyword is detected → IGNORE cache, proceed to Phase 1
 
-          USE-CACHE KEYWORDS (triggers cache reuse, any language):
-            "completa", "continua", "complete", "continue", "finish",
-            "usa i dati", "use cached", "use existing", "prosegui",
-            "riprendi", "resume", "genera report", "generate report",
-            "genera il report", "crea report"
+          USE-CACHE KEYWORDS (trigger cache reuse):
+            "complete", "continue", "finish", "use cached", "use existing",
+            "resume", "generate report"
           → If ANY use-cache keyword is detected → LOAD cache, skip to Step 0.6
 
           NO IMPLICIT INTENT DETECTED:
@@ -266,16 +264,16 @@ Step 0.4: Analyze the user's ORIGINAL prompt for implicit intent:
 
 Step 0.5: ASK the user:
 
-          Question: "Ho trovato risultati di un'investigazione precedente per
-                     il device <DEVICE_NAME>, completata <TIME_AGO> fa (alle <HH:MM> UTC).
-                     Vuoi utilizzare questi dati o preferisci ripetere
-                     l'investigazione da zero?"
+          Question: "I found results from a previous investigation for device
+                     <DEVICE_NAME>, completed <TIME_AGO> ago (at <HH:MM> UTC).
+                     Would you like to use this data or repeat the investigation
+                     from scratch?"
           Options:
-            1. "Usa i dati esistenti" — Riprende dall'investigazione precedente
-            2. "Ripeti da zero" — Ignora la cache e ricomincia
+            1. "Use existing data" — Resume from the previous investigation
+            2. "Repeat from scratch" — Ignore the cache and restart
 
-          → If user selects "Usa i dati esistenti" → proceed to Step 0.6
-          → If user selects "Ripeti da zero" → proceed to Phase 1
+          → If user selects "Use existing data" → proceed to Step 0.6
+          → If user selects "Repeat from scratch" → proceed to Phase 1
 
 Step 0.6: LOAD cached data:
           → Read the JSON file
@@ -605,6 +603,29 @@ Render analysis directly in chat using the **complete** section structure from t
    - Else check `tmp/computer-investigation/generate_html_report.py` → if found, use that path.
    - Else: `read_skill_file("computer-investigation", "generate_html_report.py")` → `CreateFile("tmp/computer-investigation/generate_html_report.py", <content>)`
 3. **Run:** `python3 <resolved_path>/generate_html_report.py temp/investigation_device_<device_name>_<timestamp>.json`
+
+### Sending the HTML Report by Email
+
+If the user asks to send the report by email, use the `office365_SendEmailV2` tool.
+
+> **CRITICAL:** The attachment `ContentBytes` field accepts ONLY a **file path in the workspace** (a plain string), NOT direct base64 content or JSON objects. The tool reads and encodes the file automatically. If the tool returns `isError: false`, the email was sent successfully — DO NOT send it again.
+
+```json
+{
+  "To": "<recipient-email>",
+  "Subject": "<subject with skill name, tenant, and primary result>",
+  "Importance": "High",
+  "Body": "<p>HTML summary of the results.</p>",
+  "Attachments": [
+    {
+      "Name": "<readable-name>.html",
+      "ContentBytes": "reports/<skill-name>/<generated-file-name>.html"
+    }
+  ]
+}
+```
+
+See [docs/email-html-report.md](../../docs/email-html-report.md) for complete documentation of this pattern.
 
 #### Mode 4 — JSON Export
 1. Export: `create_file("temp/investigation_device_<device_name>_<timestamp>.json", content)`

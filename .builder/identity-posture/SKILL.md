@@ -67,7 +67,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
 
 **Procedure:**
 
-1. **Check:** Verify that `config.json` exists at the workspace root and contains a non-empty `sentinel_workspace_id` value. If it does, skip to step 3.
+1. **Check:** Verify that `config.json` exists at the workspace root and that all required fields are non-empty: `tenant_name`, `sentinel_workspace_id`, `subscription_id`, `azure_mcp.subscription_id`, `azure_mcp.resource_group`, and `azure_mcp.workspace_name`. If the file is complete, proceed to step 3.
 
 2. **If `config.json` is missing or incomplete**, create it:
    a. **Ask the user** for the tenant name using AskUserQuestion with header "Tenant" and question: "What is your tenant name? (e.g., contoso.onmicrosoft.com or contoso.it)?"
@@ -75,7 +75,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
       - `subscription_id` → from the `<azure_resource_access>` section (the subscription ID the agent has access to)
       - `sentinel_workspace_id` → from the `<log_analytics_access>` section (the workspace GUID after `workspace=`)
       - `workspace_name` → from the `<log_analytics_access>` section (the workspace name before the colon)
-   c. **Discover** the workspace resource group by running:
+    c. **Discover** the workspace resource group with `RunAzCliReadCommands` (never run `az` in the sandbox terminal), using:
       ```
       az monitor log-analytics workspace show --workspace-name <workspace_name> --subscription <subscription_id> --query resourceGroup -o tsv
       ```
@@ -93,6 +93,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
         "api_tokens": {}
       }
       ```
+    e. **Validate:** Re-read the created file and verify that every required field listed in step 1 is non-empty. If platform settings or discovery did not provide a value, stop and report the missing field; never guess it.
 
 3. **Proceed** with the skill workflow. All Python scripts find `config.json` by walking up from their own directory (max 6 levels), so the workspace root is the correct and expected location.
 
@@ -153,30 +154,27 @@ Cache Check Logic:
 
 3. Analyze the user's ORIGINAL prompt for implicit intent:
 
-   REDO KEYWORDS (triggers fresh collection, any language):
-     "ripeti", "aggiorna", "rifai", "repeat", "redo", "refresh",
-     "update", "re-analyze", "start over", "da capo",
-     "from scratch", "ricomincia", "nuovo", "nuova analisi"
+   REDO KEYWORDS (trigger fresh collection):
+     "repeat", "redo", "refresh", "update", "re-analyze",
+     "start over", "from scratch", "new analysis"
    → If ANY redo keyword is detected → IGNORE cache, proceed to Step 0.2
 
-   USE-CACHE KEYWORDS (triggers cache reuse, any language):
-     "completa", "continua", "complete", "continue", "finish",
-     "usa i dati", "use cached", "use existing", "prosegui",
-     "riprendi", "resume", "genera report", "generate report",
-     "genera il report", "crea report"
+   USE-CACHE KEYWORDS (trigger cache reuse):
+     "complete", "continue", "finish", "use cached", "use existing",
+     "resume", "generate report"
    → If ANY use-cache keyword is detected → LOAD cached data, skip to Phase 2
 
    NO IMPLICIT INTENT DETECTED:
    → ASK the user:
-     Question: "Ho trovato dati di un'analisi precedente in output/identity-posture/,
-                completata <TIME_AGO> fa (alle <HH:MM> UTC).
-                Vuoi utilizzare questi dati o preferisci raccoglierli da zero?"
+     Question: "I found data from a previous analysis in output/identity-posture/,
+                completed <TIME_AGO> ago (at <HH:MM> UTC).
+                Would you like to use this data or collect it again from scratch?"
      Options:
-       1. "Usa i dati esistenti" — Riprende dall'analisi precedente
-       2. "Raccogli da zero" — Ignora la cache e ricomincia la raccolta dati
+       1. "Use existing data" — Resume from the previous analysis
+       2. "Collect from scratch" — Ignore the cache and collect all data again
 
-     → If user selects "Usa i dati esistenti" → LOAD cached data, skip to Phase 2
-     → If user selects "Raccogli da zero" → proceed to Step 0.2
+     → If user selects "Use existing data" → LOAD cached data, skip to Phase 2
+     → If user selects "Collect from scratch" → proceed to Step 0.2
 ```
 
 **Important rules:**
@@ -219,16 +217,16 @@ Execute these **6 steps in order** (see [get-entra-posture-data.md](get-entra-po
 - **Rate limiting (429):** Wait 30 seconds, retry once.
 - **Step 1 returns 403:** STOP — fundamental permission missing. Report to user.
 
-**Fallback per Directory Roles (Step 2 — errore 413 RequestEntityTooLarge):**
-Se il comando con `$expand=members` restituisce errore 413 (RequestEntityTooLarge):
-1. Recuperare i ruoli senza `$expand`: `az rest --method GET --uri "https://graph.microsoft.com/v1.0/directoryRoles?$select=id,displayName,roleTemplateId"`
-2. Per ogni ruolo, recuperare i membri separatamente: `az rest --method GET --uri "https://graph.microsoft.com/v1.0/directoryRoles/{role-id}/members?$select=id,userPrincipalName,displayName"`
-3. Combinare i risultati in un unico JSON con struttura `{"value": [{"displayName": "...", "id": "...", "roleTemplateId": "...", "members": [...]}]}` e salvare come `directory_roles_<ts>.json`.
+**Directory Roles fallback (Step 2 — 413 RequestEntityTooLarge):**
+If the command with `$expand=members` returns 413 (RequestEntityTooLarge):
+1. Retrieve roles without `$expand`: `az rest --method GET --uri "https://graph.microsoft.com/v1.0/directoryRoles?$select=id,displayName,roleTemplateId"`
+2. Retrieve members separately for each role: `az rest --method GET --uri "https://graph.microsoft.com/v1.0/directoryRoles/{role-id}/members?$select=id,userPrincipalName,displayName"`
+3. Combine the results into one JSON object with the structure `{"value": [{"displayName": "...", "id": "...", "roleTemplateId": "...", "members": [...]}]}` and save it as `directory_roles_<ts>.json`.
 
-**Fallback per PIM Eligible (Step 3 — errore InvalidFilter):**
-Se il comando con `$expand=principal,roleDefinition` restituisce InvalidFilter:
-1. Rimuovere `$expand` e chiamare: `az rest --method GET --uri "https://graph.microsoft.com/v1.0/roleManagement/directory/roleEligibilityScheduleInstances"`
-2. Salvare il risultato come `pim_eligible_roles_<ts>.json`. Lo script di analisi gestisce entrambi i formati (con e senza expand).
+**PIM Eligible fallback (Step 3 — InvalidFilter):**
+If the command with `$expand=principal,roleDefinition` returns InvalidFilter:
+1. Remove `$expand` and call: `az rest --method GET --uri "https://graph.microsoft.com/v1.0/roleManagement/directory/roleEligibilityScheduleInstances"`
+2. Save the result as `pim_eligible_roles_<ts>.json`. The analysis script supports both expanded and unexpanded formats.
 
 **Step 0.3 — Validate collected data:**
 
@@ -308,7 +306,7 @@ The same cascade applies for `get-entra-posture-data.py` if used for validation 
 | **HTML report** | Only if user explicitly requests | Materialize `generate_html_report.py` and execute (see below) |
 | **JSON export** | Only if user explicitly requests | Save computed metrics as JSON |
 
-> **Never ask** which mode — default to inline. If user says "generate HTML", "scarica MD", etc., then use the requested mode.
+> **Never ask** which mode — default to inline. If the user says "generate HTML", "download Markdown", etc., use the requested mode.
 
 **Step 2.2 — Run the analysis script:**
 
@@ -339,6 +337,29 @@ python3 tmp/identity-posture/generate_html_report.py \
     --output-dir reports/identity-posture/ \
     --tenant <tenant_short_name>
 ```
+
+### Sending the HTML Report by Email
+
+If the user asks to send the report by email, use the `office365_SendEmailV2` tool.
+
+> **CRITICAL:** The attachment `ContentBytes` field accepts ONLY a **file path in the workspace** (a plain string), NOT direct base64 content or JSON objects. The tool reads and encodes the file automatically. If the tool returns `isError: false`, the email was sent successfully — DO NOT send it again.
+
+```json
+{
+  "To": "<recipient-email>",
+  "Subject": "<subject with skill name, tenant, and primary result>",
+  "Importance": "High",
+  "Body": "<p>HTML summary of the results.</p>",
+  "Attachments": [
+    {
+      "Name": "<readable-name>.html",
+      "ContentBytes": "reports/<skill-name>/<generated-file-name>.html"
+    }
+  ]
+}
+```
+
+See [docs/email-html-report.md](../../docs/email-html-report.md) for complete documentation of this pattern.
 
 **Step 2.4 — Present results:**
 - Show all metrics, score card, and findings directly inline in chat (ALWAYS, never skip)

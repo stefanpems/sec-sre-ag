@@ -117,10 +117,10 @@ az rest --method GET --uri "https://graph.microsoft.com/v1.0/directoryRoles?$exp
 - Azure AD Joined Device Local Administrator
 
 **Fallback (413 RequestEntityTooLarge):**
-Se `$expand=members` genera una risposta troppo grande (413), l'agente deve:
-1. Chiamare `GET /v1.0/directoryRoles?$select=id,displayName,roleTemplateId` per ottenere la lista ruoli
-2. Per ciascun ruolo, chiamare `GET /v1.0/directoryRoles/{id}/members?$select=id,userPrincipalName,displayName`
-3. Ricostruire la struttura combinata con campo `members` per ogni ruolo
+If `$expand=members` produces an oversized response (413), the agent must:
+1. Call `GET /v1.0/directoryRoles?$select=id,displayName,roleTemplateId` to retrieve the role list
+2. For each role, call `GET /v1.0/directoryRoles/{id}/members?$select=id,userPrincipalName,displayName`
+3. Rebuild the combined structure with a `members` field for each role
 
 ---
 
@@ -144,7 +144,7 @@ az rest --method GET --uri "https://graph.microsoft.com/v1.0/roleManagement/dire
 - **Both** → has permanent AND eligible roles → review if permanent is needed
 
 **Fallback (InvalidFilter):**
-Se `$expand=principal,roleDefinition` restituisce InvalidFilter, rimuovere `$expand` e chiamare l'endpoint senza espansione. I dati base (`principalId`, `roleDefinitionId`) sono comunque presenti nella risposta.
+If `$expand=principal,roleDefinition` returns InvalidFilter, remove `$expand` and call the endpoint without expansion. The base response still contains `principalId` and `roleDefinitionId`.
 
 ---
 

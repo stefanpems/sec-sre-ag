@@ -73,7 +73,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
 
 **Procedure:**
 
-1. **Check:** Verify that `config.json` exists at the workspace root and contains a non-empty `sentinel_workspace_id` value. If it does, skip to step 3.
+1. **Check:** Verify that `config.json` exists at the workspace root and that all required fields are non-empty: `tenant_name`, `sentinel_workspace_id`, `subscription_id`, `azure_mcp.subscription_id`, `azure_mcp.resource_group`, and `azure_mcp.workspace_name`. If the file is complete, proceed to step 3.
 
 2. **If `config.json` is missing or incomplete**, create it:
    a. **Ask the user** for the tenant name using AskUserQuestion with header "Tenant" and question: "What is your tenant name? (e.g., contoso.onmicrosoft.com or contoso.it)?"
@@ -81,7 +81,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
       - `subscription_id` → from the `<azure_resource_access>` section (the subscription ID the agent has access to)
       - `sentinel_workspace_id` → from the `<log_analytics_access>` section (the workspace GUID after `workspace=`)
       - `workspace_name` → from the `<log_analytics_access>` section (the workspace name before the colon)
-   c. **Discover** the workspace resource group by running:
+    c. **Discover** the workspace resource group with `RunAzCliReadCommands` (never run `az` in the sandbox terminal), using:
       ```
       az monitor log-analytics workspace show --workspace-name <workspace_name> --subscription <subscription_id> --query resourceGroup -o tsv
       ```
@@ -99,6 +99,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
         "api_tokens": {}
       }
       ```
+    e. **Validate:** Re-read the created file and verify that every required field listed in step 1 is non-empty. If platform settings or discovery did not provide a value, stop and report the missing field; never guess it.
 
 3. **Proceed** with the skill workflow. All Python scripts find `config.json` by walking up from their own directory (max 6 levels), so the workspace root is the correct and expected location.
 
@@ -175,7 +176,7 @@ Workspace parameters are automatically available from the agent's system context
 
 ### Secondary: config.json (Auto-Generated)
 
-The agent auto-generates `config.json` at the workspace root from its platform settings before running any skill script. See the sentinel-ingestion-report skill for the full Config Auto-Generation procedure.
+Before running its first applicable script, the skill instructions require the agent to ensure that `config.json` is complete at the runtime workspace root and to generate it from platform settings when needed. The scripts themselves only read the file. See the sentinel-ingestion-report skill for the full Config Auto-Generation procedure.
 
 ### Configuration Resolution Order
 
@@ -440,6 +441,29 @@ Render analysis directly in chat using the complete section structure from the M
 **Output:** `reports/user-investigations/Investigation_Report_<username>_<timestamp>.html`
 
 **Fallback:** If materialization or execution fails, fall back to Mode 2 (Markdown report).
+
+### Sending the HTML Report by Email
+
+If the user asks to send the report by email, use the `office365_SendEmailV2` tool.
+
+> **CRITICAL:** The attachment `ContentBytes` field accepts ONLY a **file path in the workspace** (a plain string), NOT direct base64 content or JSON objects. The tool reads and encodes the file automatically. If the tool returns `isError: false`, the email was sent successfully — DO NOT send it again.
+
+```json
+{
+    "To": "<recipient-email>",
+    "Subject": "<subject with skill name, tenant, and primary result>",
+    "Importance": "High",
+    "Body": "<p>HTML summary of the results.</p>",
+    "Attachments": [
+        {
+            "Name": "<readable-name>.html",
+            "ContentBytes": "reports/<skill-name>/<generated-file-name>.html"
+        }
+    ]
+}
+```
+
+See [docs/email-html-report.md](../../docs/email-html-report.md) for complete documentation of this pattern.
 
 #### Combining Modes
 

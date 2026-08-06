@@ -110,7 +110,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
 
 **Procedure:**
 
-1. **Check:** Verify that `config.json` exists at the workspace root and contains a non-empty `sentinel_workspace_id` value. If it does, skip to step 3.
+1. **Check:** Verify that `config.json` exists at the workspace root and that all required fields are non-empty: `tenant_name`, `sentinel_workspace_id`, `subscription_id`, `azure_mcp.subscription_id`, `azure_mcp.resource_group`, and `azure_mcp.workspace_name`. If the file is complete, proceed to step 3.
 
 2. **If `config.json` is missing or incomplete**, create it:
    a. **Ask the user** for the tenant name using AskUserQuestion with header "Tenant" and question: "What is your tenant name? (e.g., contoso.onmicrosoft.com or contoso.it)?"
@@ -118,7 +118,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
       - `subscription_id` → from the `<azure_resource_access>` section (the subscription ID the agent has access to)
       - `sentinel_workspace_id` → from the `<log_analytics_access>` section (the workspace GUID after `workspace=`)
       - `workspace_name` → from the `<log_analytics_access>` section (the workspace name before the colon)
-   c. **Discover** the workspace resource group by running:
+   c. **Discover** the workspace resource group with `RunAzCliReadCommands` (never run `az` in the sandbox terminal), using:
       ```
       az monitor log-analytics workspace show --workspace-name <workspace_name> --subscription <subscription_id> --query resourceGroup -o tsv
       ```
@@ -136,6 +136,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
         "api_tokens": {}
       }
       ```
+   e. **Validate:** Re-read the created file and verify that every required field listed in step 1 is non-empty. If platform settings or discovery did not provide a value, stop and report the missing field; never guess it.
 
 3. **Proceed** with the skill workflow. All Python scripts find `config.json` by walking up from their own directory (max 6 levels), so the workspace root is the correct and expected location.
 
@@ -202,7 +203,7 @@ python <resolved_path>/invoke_ingestion_scan.py --redo
 ### Cache Behavior
 
 - If a scratchpad exists with age **< 4 hours**, ask the user whether to use cached results or re-run
-- If the user says "redo", "rifai", "re-run", or passes `--redo` → always re-execute regardless of cache age
+- If the user says "redo", "repeat", "re-run", or passes `--redo` → always re-execute regardless of cache age
 - If cache is **≥ 4 hours old** or no scratchpad exists → always re-execute
 
 ### Step 2: Load Rendering Context
@@ -225,17 +226,17 @@ Render the **complete report (§1-§8) inline in chat**. This is the default and
 
 ## Config Auto-Generation
 
-The agent auto-generates `config.json` at the workspace root before running any script. This replaces the need for a manually-maintained config file.
+The skill instructions require the agent to generate `config.json` at the runtime workspace root before running the first applicable script. This replaces the need for a manually maintained or repository-tracked config file. The Python scripts only read the file; they do not create it.
 
 ### When to generate
 
-- **First execution in a session:** If `config.json` does not exist at the workspace root, or exists but has an empty `sentinel_workspace_id`, generate it immediately.
-- **Subsequent executions:** Skip — the file persists for the duration of the session.
-- **Never regenerate** if the file already has a non-empty `sentinel_workspace_id` (it may have been customized by the user).
+- **First applicable skill execution in a sandbox:** Validate `tenant_name`, `sentinel_workspace_id`, `subscription_id`, `azure_mcp.subscription_id`, `azure_mcp.resource_group`, and `azure_mcp.workspace_name`. If the file is missing or any required field is empty, generate or repair it immediately.
+- **Subsequent executions in the same sandbox:** Reuse a complete file; it may have been customized by the user.
+- **New sandbox or conversation:** The runtime workspace may be fresh, so repeat the existence and completeness check.
 
 ### How to generate
 
-Use `CreateFile` to write the following to the workspace root `config.json`:
+Use the sandbox file tools to write the following to the runtime workspace root `config.json`, then re-read it and verify that all required fields are non-empty:
 
 ```json
 {
@@ -273,7 +274,7 @@ Write to the **workspace root** (the top-level directory of the agent workspace)
 **Before starting ANY ingestion report:**
 
 1. **Run `invoke_ingestion_scan.py`** — this single script handles ALL data gathering (Phases 1-5). The LLM does NOT run queries, transcribe output, or write scratchpad sections
-2. **Ensure `config.json` exists at the workspace root** — the agent auto-generates it from its `<agent_settings>` and `<log_analytics_access>` platform configuration. If the file already exists with a non-empty `sentinel_workspace_id`, skip regeneration. See [Config Auto-Generation](#config-auto-generation) for the exact procedure.
+2. **Ensure `config.json` is complete at the workspace root** — the agent generates it from its `<agent_settings>` and `<log_analytics_access>` platform configuration when it is missing or any required field is empty. Preserve and reuse an existing complete file. See [Config Auto-Generation](#config-auto-generation) for the exact procedure.
 3. **Output is always inline** — do NOT ask the user for output mode. Render the report inline in chat. Only generate md/html files when the user explicitly requests export
 4. **ALWAYS ask the user for timeframe** if not specified: supported values are 1, 7, 30 (default), 60, or 90 days. The `--days` parameter controls the primary window; deep-dive and comparison windows are derived automatically
 
@@ -466,6 +467,29 @@ When the user says "export as html", "generate html", or "html report":
 python generate_html_report.py <scratchpad_path> --output-dir tmp/sentinel-ingestion-report/
 ```
 Generates a self-contained, dark-theme HTML file with all tables, charts, and badges rendered.
+
+### Sending the HTML Report by Email
+
+If the user asks to send the report by email, use the `office365_SendEmailV2` tool.
+
+> **CRITICAL:** The attachment `ContentBytes` field accepts ONLY a **file path in the workspace** (a plain string), NOT direct base64 content or JSON objects. The tool reads and encodes the file automatically. If the tool returns `isError: false`, the email was sent successfully — DO NOT send it again.
+
+```json
+{
+   "To": "<recipient-email>",
+   "Subject": "<subject with skill name, tenant, and primary result>",
+   "Importance": "High",
+   "Body": "<p>HTML summary of the results.</p>",
+   "Attachments": [
+      {
+         "Name": "<readable-name>.html",
+         "ContentBytes": "reports/<skill-name>/<generated-file-name>.html"
+      }
+   ]
+}
+```
+
+See [docs/email-html-report.md](../../docs/email-html-report.md) for complete documentation of this pattern.
 
 **⛔ Do NOT ask the user for output mode.** Always render inline first. Only generate file exports when explicitly requested.
 

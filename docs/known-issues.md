@@ -228,6 +228,19 @@ Scripts that support `--prefetch-dir`: `invoke_mitre_scan.py`, `invoke_ingestion
 
 **Affects:** `identity-posture`, `user-investigation`, `computer-investigation`.
 
+### 3.3 Sending HTML Reports by Email — `ContentBytes` Is a File Path
+
+The `office365_SendEmailV2` tool accepts ONLY a **file path in the workspace** in `Attachments[].ContentBytes` (a plain string such as `reports/identity-posture/Report.html`). The tool reads the file from the filesystem and automatically encodes it as base64 before sending.
+
+**Do NOT pass:**
+- Direct base64 content (a long string beginning with `PCFET0N...`)
+- JSON objects with `$content-type` and `$content`
+- URLs or absolute paths
+
+**Anti-duplication rule:** If the tool returns `isError: false`, the email was sent successfully. Do not repeat the send to "verify" it — every call sends a new email.
+
+**Affects:** All skills with `generate_html_report.py` (`identity-posture`, `incident-investigation`, `incident-statistics`, `sentinel-ingestion-report`, `mcp-usage-monitoring`, `computer-investigation`, `user-investigation`, `mitre-coverage-report`).
+
 ---
 
 ## Using This Guide with the Agent

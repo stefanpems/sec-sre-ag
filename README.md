@@ -39,9 +39,9 @@ Posts content as a comment on a Microsoft Sentinel incident. Accepts plain text,
 | # | Example prompt |
 |---|---|
 | 1 | *Post this investigation summary as a comment on incident 12345* |
-| 2 | *Scrivi il report come commento sull'incidente 98765* |
+| 2 | *Post the report as a comment on incident 98765* |
 | 3 | *Add a comment to incident 54321 with the analysis results* |
-| 4 | *Aggiungi questo testo come commento all'incidente* |
+| 4 | *Add this text as a comment on the incident* |
 | 5 | *Comment on the incident with the HTML report* |
 
 ### incident-investigation
@@ -185,6 +185,73 @@ chmod +x discover-setup-ids.sh
 ```
 
 The subscription argument is optional. When omitted, the script reads the active Azure CLI subscription. It does not call `az account set`; the selected subscription is passed explicitly to every resource query. If exactly one UAMI and one Sentinel workspace are found, the output includes ready-to-run commands for both assignment scripts. Otherwise, select the intended resources from the displayed list.
+
+### 0. Runtime `config.json` (created on first skill execution)
+
+`config.json` is runtime configuration for the SRE Agent sandbox. It is **not**
+created by the Cloud Shell setup scripts or by the skill deployment tool, and it
+must not be committed to this repository. Do not confuse it with
+`.builder/deploy/deploy.config.json`, which only identifies the agent targeted by
+the deployment tool.
+
+After connecting this repository and deploying the skills, invoke any skill in
+the table below. Before it runs its first script, the skill instructions require
+the agent to:
+
+1. Locate the root of the agent's runtime workspace (the parent of `codeRefs/`
+   and `tmp/`), not the root of a local deployment clone.
+2. Check for `config.json` and validate the required workspace fields.
+3. If the file is missing or incomplete, ask only for the tenant name; derive
+   the subscription ID, Log Analytics workspace GUID, and workspace name from
+   the platform-injected `<azure_resource_access>` and
+   `<log_analytics_access>` settings.
+4. Discover the Log Analytics workspace resource group with the sandbox Azure
+   CLI read tool. The agent must not invoke `az` in the sandbox terminal.
+5. Create and then re-read `config.json` before continuing. If the platform
+   settings are unavailable or discovery fails, the agent must stop and report
+   the missing value instead of guessing it.
+
+The following deployed skills contain this bootstrap procedure and can create
+and populate the shared file on their first execution:
+
+| Skill | Runtime use of `config.json` |
+|---|---|
+| `computer-investigation` | Workspace and subscription fallback for orchestration |
+| `identity-posture` | Workspace context; `tenant_name` is also read by the analysis script |
+| `incident-investigation` | Workspace and subscription fallback for orchestration |
+| `incident-statistics` | Shared workspace bootstrap before script execution |
+| `ioc-investigation` | Workspace context and optional IP-enrichment configuration |
+| `mcp-usage-monitoring` | Workspace context for Log Analytics queries |
+| `mitre-coverage-report` | Read directly by `invoke_mitre_scan.py` |
+| `sentinel-ingestion-report` | Read directly by `invoke_ingestion_scan.py` |
+| `threat-pulse` | Workspace, subscription, and tenant context |
+| `user-investigation` | Workspace context and optional IP-enrichment configuration |
+
+This is **instruction-driven bootstrap**: the agent creates the file through its
+file and Azure tools. The Python scripts do not create it themselves; they only
+read it when needed. The first skill invoked in a new sandbox creates the shared
+file, and later skills reuse it. A new sandbox or conversation may have a fresh
+workspace, so the same existence check is performed again.
+
+Expected runtime schema:
+
+```json
+{
+  "tenant_name": "<tenant name, for example contoso.onmicrosoft.com>",
+  "sentinel_workspace_id": "<Log Analytics workspace GUID>",
+  "subscription_id": "<Azure subscription ID>",
+  "azure_mcp": {
+    "subscription_id": "<same Azure subscription ID>",
+    "resource_group": "<resource group containing the Log Analytics workspace>",
+    "workspace_name": "<Log Analytics workspace name>"
+  },
+  "api_tokens": {}
+}
+```
+
+`api_tokens` remains empty. IP-enrichment tokens are loaded from Key Vault or
+environment variables at runtime. `config.json`, output, and report directories
+are excluded by `.gitignore`.
 
 ### 1. API Permissions (Entra ID — Graph + MDE)
 
@@ -389,13 +456,13 @@ No script manipulates `sys.path` or imports modules from other skill directories
 
 ### Dynamic `config.json` Creation
 
-Every skill's SKILL.md includes a **Pre-requisite: Environment Configuration** section that instructs the agent to ensure `config.json` exists at the workspace root before running any script. The agent creates this file dynamically at the start of each session by:
+Ten runtime skills listed in [Setup section 0](#0-runtime-configjson-created-on-first-skill-execution) include a **Pre-requisite: Environment Configuration** section that instructs the agent to ensure `config.json` exists at the workspace root before running a script. The agent bootstraps the file on the first applicable skill execution in a sandbox by:
 
-1. **Checking** whether `config.json` already exists at the workspace root with a non-empty `sentinel_workspace_id`.
-2. **If missing**, extracting environment values from the agent's own platform settings (`<azure_resource_access>`, `<log_analytics_access>`), asking the user for the tenant name, and discovering the resource group via `az monitor log-analytics workspace show`.
-3. **Writing** `config.json` at the workspace root with `tenant_name`, `sentinel_workspace_id`, `subscription_id`, and `azure_mcp` fields.
+1. **Checking** that `config.json` contains all required workspace fields.
+2. **If missing or incomplete**, extracting environment values from the agent's own platform settings (`<azure_resource_access>`, `<log_analytics_access>`), asking the user for the tenant name, and discovering the resource group through the sandbox Azure CLI read tool.
+3. **Writing and validating** `config.json` at the runtime workspace root with `tenant_name`, `sentinel_workspace_id`, `subscription_id`, and `azure_mcp` fields.
 
-At runtime, every Python script finds `config.json` by walking up from its own directory (up to 6 levels of parent directories). Because the workspace root is always an ancestor of both `codeRefs/sec-sre-ag/<skill>/` and `tmp/<skill>/`, the file is found regardless of which File Resolution cascade step resolved the script. The `api_tokens` object is left empty — API tokens are loaded from Key Vault or environment variables independently.
+Scripts that consume the file find it by walking up from their own directory (up to 6–10 levels of parent directories). Because the runtime workspace root is an ancestor of both `codeRefs/sec-sre-ag/<skill>/` and `tmp/<skill>/`, the file is found regardless of which File Resolution cascade step resolved the script. The `api_tokens` object is left empty; API tokens are loaded from Key Vault or environment variables independently.
 
 ---
 
@@ -432,9 +499,11 @@ See `shared/.env.example` for the template of required environment variables.
 
 ## Configuration
 
-The SRE Agent auto-generates `config.json` at the workspace root from its platform
-settings (`<agent_settings>`, `<log_analytics_access>`) before running any skill script.
-No manual configuration file is needed.
+The applicable SRE Agent skill instructions generate `config.json` at the
+runtime workspace root from platform settings before running their first script.
+No manually maintained or repository-tracked runtime configuration file is
+needed. See [Setup section 0](#0-runtime-configjson-created-on-first-skill-execution)
+for timing, ownership, eligible skills, and failure behavior.
 
 ### config.json schema (auto-generated)
 
@@ -448,19 +517,14 @@ No manual configuration file is needed.
     "resource_group": "<resource group containing the LA workspace>",
     "workspace_name": "<Log Analytics workspace name>"
   },
-  "api_tokens": {
-    "abuseipdb": "<retrieved from Key Vault at runtime>",
-    "ipinfo": "<retrieved from Key Vault at runtime>",
-    "vpnapi": "<retrieved from Key Vault at runtime>",
-    "shodan": "<optional>"
-  }
+  "api_tokens": {}
 }
 ```
 
 The agent reads these values from:
 - `sentinel_workspace_id`, `subscription_id`, `azure_mcp.*` → from `<agent_settings>` and `<log_analytics_access>` injected by the platform
 - `tenant_name` → from agent memory or user prompt
-- `api_tokens.*` → from Azure Key Vault at runtime (for `enrich_ips.py` only)
+- IP-enrichment tokens → from Azure Key Vault or environment variables at runtime; they are not persisted in `config.json`
 
 Scripts also accept CLI arguments (`--workspace-id`, `--subscription-id`, etc.)
 which override `config.json` values.

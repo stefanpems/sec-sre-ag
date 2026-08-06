@@ -124,7 +124,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
 
 **Procedure:**
 
-1. **Check:** Verify that `config.json` exists at the workspace root and contains a non-empty `sentinel_workspace_id` value. If it does, skip to step 3.
+1. **Check:** Verify that `config.json` exists at the workspace root and that all required fields are non-empty: `tenant_name`, `sentinel_workspace_id`, `subscription_id`, `azure_mcp.subscription_id`, `azure_mcp.resource_group`, and `azure_mcp.workspace_name`. If the file is complete, proceed to step 3.
 
 2. **If `config.json` is missing or incomplete**, create it:
    a. **Ask the user** for the tenant name using AskUserQuestion with header "Tenant" and question: "What is your tenant name? (e.g., contoso.onmicrosoft.com or contoso.it)?"
@@ -132,7 +132,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
       - `subscription_id` → from the `<azure_resource_access>` section (the subscription ID the agent has access to)
       - `sentinel_workspace_id` → from the `<log_analytics_access>` section (the workspace GUID after `workspace=`)
       - `workspace_name` → from the `<log_analytics_access>` section (the workspace name before the colon)
-   c. **Discover** the workspace resource group by running:
+   c. **Discover** the workspace resource group with `RunAzCliReadCommands` (never run `az` in the sandbox terminal), using:
       ```
       az monitor log-analytics workspace show --workspace-name <workspace_name> --subscription <subscription_id> --query resourceGroup -o tsv
       ```
@@ -150,6 +150,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
         "api_tokens": {}
       }
       ```
+   e. **Validate:** Re-read the created file and verify that every required field listed in step 1 is non-empty. If platform settings or discovery did not provide a value, stop and report the missing field; never guess it.
 
 3. **Proceed** with the skill workflow. All Python scripts find `config.json` by walking up from their own directory (max 6 levels), so the workspace root is the correct and expected location.
 
@@ -217,7 +218,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
 
 2. **Read `config.json`** — Load workspace ID, tenant, subscription, and Azure MCP parameters before execution. If absent, rely on agent settings.
 
-3. **Output defaults** — Default to **inline chat** with **7d lookback**. **NEVER ask** the user for output format or preferences. Every execution renders ALL results inline. If the user explicitly requests a file (`"genera HTML"`, `"save as markdown"`, `"scarica MD"`, etc.), generate the requested format **in addition to** inline output. If the user just says "threat pulse", "run a scan", or similar — proceed immediately with defaults.
+3. **Output defaults** — Default to **inline chat** with **7d lookback**. **NEVER ask** the user for output format or preferences. Every execution renders ALL results inline. If the user explicitly requests a file (`"generate HTML"`, `"save as Markdown"`, `"download Markdown"`, etc.), generate the requested format **in addition to** inline output. If the user just says "threat pulse", "run a scan", or similar — proceed immediately with defaults.
 
 4. **⛔ MANDATORY: Evidence-based analysis only** — Every finding must cite query results. Every "clear" verdict must cite 0 results.
 
@@ -258,20 +259,18 @@ Before executing any script resolved via the File Resolution cascade, the agent 
     3. Analyze the user's ORIGINAL prompt for intent:
 
        REDO KEYWORDS (always re-collect, never ask):
-         "ripeti", "aggiorna", "rifai", "repeat", "redo", "refresh",
-         "update", "re-analyze", "start over", "da capo",
-         "from scratch", "ricomincia", "nuovo", "nuova analisi"
+             "repeat", "redo", "refresh", "update", "re-analyze",
+             "start over", "from scratch", "new analysis"
        → If ANY redo keyword is detected → IGNORE cache, proceed with fresh collection
 
        REPORT-ONLY KEYWORDS (use cache if valid):
-         "genera report", "generate report", "genera il report",
-         "crea report", "genera HTML", "genera MD", "render",
-         "mostra risultati", "show results"
+             "generate report", "generate HTML", "generate Markdown", "render",
+             "show results"
        → If ANY report-only keyword AND cache age ≤ 4h:
          ASK the user:
-           "Esistono risultati in cache generati <TIME_AGO> fa (alle <HH:MM> UTC).
-            Vuoi usare quelli o rieseguire una nuova raccolta dati?"
-           Options: "Usa la cache" / "Raccogli da zero"
+                "Cached results were generated <TIME_AGO> ago (at <HH:MM> UTC).
+                  Would you like to use them or run a new data collection?"
+                Options: "Use cached data" / "Collect from scratch"
 
        NO IMPLICIT INTENT (default = fresh collection):
        → Proceed with fresh data collection without asking
@@ -787,7 +786,7 @@ After all queries complete, check these patterns and escalate when found:
 
 ## HTML Report Generation
 
-When the user explicitly requests an HTML report (`"genera HTML"`, `"export HTML"`, `"scarica HTML"`, etc.):
+When the user explicitly requests an HTML report (`"generate HTML"`, `"export HTML"`, `"download HTML"`, etc.):
 
 1. **Save the inline report as markdown** to `reports/threat-pulse/Threat_Pulse_<YYYYMMDD_HHMMSS>.md`
 2. **Run the HTML generator:**
