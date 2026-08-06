@@ -141,6 +141,54 @@ The `identityProtection/riskyUsers` endpoint has a maximum `$top` value of 500 (
 
 **Affects:** `identity-posture` (Step 4: Risky Users).
 
+### 1.12 Agent Cannot Identify the Authenticated User
+
+The agent runtime does NOT receive the authenticated user's identity claims (UPN, OID, email, tenant ID) from the web frontend. The platform injects only the agent's own configuration (subscription, workspace, managed identity) into the system prompt — the user's identity is discarded at the frontend-to-agent boundary.
+
+**Consequence:** When a task requires the user's UPN (e.g., "send the report to me", "investigate my sign-ins", "filter by my account"), the agent does not know who "me" is.
+
+**What does NOT work:**
+
+| Approach | Why it fails |
+|---|---|
+| `az rest --url https://graph.microsoft.com/v1.0/me` | Runs with the agent's **managed identity**, which has no user context — `/me` is undefined |
+| `az ad signed-in-user show` | Same problem — the signed-in user is the managed identity service principal, not the human operator |
+| Reading claims from the session/token | The agent has no access to the user's authentication token or session headers |
+
+**Resolution — UPN Discovery Cascade:**
+
+When a task requires the authenticated user's UPN and it is not already known (not in memory, not provided in the prompt), the agent MUST follow this cascade:
+
+1. **Check agent memory** — If the UPN was previously discovered and saved to `memories/synthesizedKnowledge/`, use it (but verify it's still current if the memory is old).
+
+2. **If the Office 365 `GetEmails` tool is available** — Read exactly 1 email from the Sent Items folder with minimal token cost:
+  ```
+  office365_GetEmailsV3(
+    folderPath: "SentItems",
+    top: 1,
+    fetchOnlyUnread: false,
+    includeAttachments: false
+  )
+  ```
+  The `from` field in the response contains the user's SMTP primary address, which coincides with the UPN in most Microsoft 365 tenants. This works because the Office 365 connector authenticates via OAuth as the **user**, not the managed identity.
+
+  **Important:** This returns the SMTP primary address, which coincides with the UPN in most tenants but not necessarily all. For definitive UPN confirmation, follow up with:
+  ```
+  RunAzCliReadCommands: az ad user show --id <smtp-address> --query userPrincipalName -o tsv
+  ```
+
+3. **If the Office 365 `GetEmails` tool is NOT available** — Ask the user explicitly:
+  > "This task requires your identity. What is your UPN (e.g., user@contoso.com)?"
+
+4. **After successful discovery** — Save the UPN to agent memory (`memories/synthesizedKnowledge/team.md`) so it does not need to be rediscovered in future sessions.
+
+**NEVER:**
+- Guess the UPN from the tenant name or other indirect signals
+- Use `/me` endpoints with the managed identity and present the result as the user's identity
+- Skip the discovery and silently use a placeholder
+
+**Affects:** Any task where the user refers to themselves ("send to me", "my account", "my sign-ins", "investigate me") and skills that need to filter data by the operator's identity.
+
 ---
 
 ## 2. KQL Pitfalls
