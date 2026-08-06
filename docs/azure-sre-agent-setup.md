@@ -339,8 +339,8 @@ Use Microsoft Learn to find the official Azure SRE Agent documentation for manag
 
 ## 9. Continue Repository Setup
 
-Return to the root [README](../README.md#d-discover-the-required-ids) and
-continue with **D. Discover the required IDs**, runtime configuration, Entra ID
+Return to the root [README](../README.md#e-discover-the-required-ids) and
+continue with **E. Discover the required IDs**, runtime configuration, Entra ID
 API permissions, Azure RBAC, optional Key Vault integration, and Sentinel data
 connector prerequisites.
 

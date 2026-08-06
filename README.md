@@ -1,8 +1,31 @@
 # sec-sre-ag — SRE Agent Custom Skills
 
-This repository contains the custom skills — along with their supporting scripts, data files, and configurations — for the **Azure SRE Agent** `sec-sre-ag`. The agent performs security operations across Microsoft Sentinel, Microsoft Defender XDR, and Microsoft Entra ID, leveraging KQL queries via Azure Monitor MCP, Graph API calls via Azure CLI, and third-party threat-intelligence APIs.
+This repository provides custom skills and runtime scripts that turn Azure SRE
+Agent into a security operations assistant. It integrates with Microsoft
+Sentinel, Microsoft Defender XDR, Microsoft Entra ID, Microsoft Graph, Azure
+Monitor, and selected threat-intelligence services. Supported use cases include
+daily threat posture scans, incident listing, investigation, statistics, and
+commenting; forensic investigation of users, endpoints, and indicators of
+compromise; identity posture assessment; KQL query authoring and validation;
+MITRE ATT&CK coverage analysis; Sentinel ingestion optimization; and MCP usage
+monitoring. Skills accept natural-language requests, collect evidence through
+approved agent tools, run repository scripts through Code Access, and produce
+structured findings, charts, and HTML reports. Top-level skill directories hold
+Python runtime code and data, while `.builder` holds deployable Skill Builder
+instructions and supporting documents. The setup assets create or update the
+skills and configure the identities, permissions, connectors, and data sources
+required for customer-owned Azure SRE Agent deployments.
 
-Each skill is a self-contained capability that the agent can invoke in response to natural-language prompts. Skills cover the full spectrum of SOC operations: from broad-spectrum threat dashboards and incident triage, through deep forensic investigations on users, devices, and IoCs, to governance reporting on MITRE ATT&CK coverage, data ingestion, identity posture, and MCP usage monitoring.
+## Contents
+
+| Section | What it contains |
+|---|---|
+| [Skills](#skills) | Supported security operations use cases, capabilities, and example prompts |
+| [Setup](#setup) | Customer repository, agent creation, connectors, skill deployment, IDs, permissions, RBAC, and data prerequisites |
+| [Deploy or update skills](#d-deploy-or-update-skills) | Initial creation and idempotent updates with `deploy_skills.py` |
+| [Sandbox Architecture & Script Retrieval](#sandbox-architecture--script-retrieval) | Code Access, file resolution, script execution, and runtime configuration behavior |
+| [Repository Structure](#repository-structure) | Separation between runtime scripts, shared code, and Skill Builder content |
+| [Configuration](#configuration) | Generated `config.json` schema and value sources |
 
 ---
 
@@ -229,7 +252,7 @@ Follow the detailed guide for exact fields, PAT permissions, governance
 settings, validation prompts, and the required response when a credential is
 exposed.
 
-#### Deploy or update skills
+### D. Deploy or update skills
 
 Use [`.builder/deploy/deploy_skills.py`](.builder/deploy/deploy_skills.py) both
 for the initial creation of the agent's custom skills and for every subsequent
@@ -256,7 +279,7 @@ Code Access; they must not be copied into `.builder`. See the
 [deployment tool guide](.builder/deploy/README.md) for target configuration,
 cross-tenant deployment, and delete operations.
 
-### D. Discover the required IDs
+### E. Discover the required IDs
 
 Run [`setup/discover-setup-ids.sh`](setup/discover-setup-ids.sh) from **Azure Cloud Shell (Bash)** before assigning permissions. The script uses read-only Azure CLI commands to list the values required by the assignment scripts:
 
