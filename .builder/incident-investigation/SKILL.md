@@ -162,7 +162,7 @@ Before executing any script resolved via the File Resolution cascade, the agent 
 **Incident ID Patterns:**
 | Pattern | Source | KQL Query |
 |---------|--------|-----------|
-| Numeric (e.g., `12345`, `98765`) | Defender XDR / Sentinel | Q1: Filter by `IncidentNumber` |
+| Numeric (e.g., `12345`, `98765`) | Defender XDR / Sentinel | Q1: Filter by `ProviderIncidentId` (this is what the Defender portal displays; fall back to `IncidentNumber` only if no match) |
 | GUID format | Sentinel (internal) | Q1b: Filter by `IncidentName` |
 | `INxx-xxxxx` format | Defender XDR | Q1: Filter by `ProviderIncidentId` |
 
@@ -177,6 +177,8 @@ When an incident is discovered via Sentinel KQL (e.g., `SecurityIncident` or `Se
 | `SecurityIncident.IncidentName` | GUID-based lookups | Sentinel internal GUID |
 
 **Rule:** When querying `SecurityIncident`, **always project `ProviderIncidentId`** alongside `IncidentNumber` for cross-referencing.
+
+**⚠️ Disambiguation Rule:** When a user provides a numeric incident ID, treat it as a `ProviderIncidentId` first (this is what the Defender XDR portal displays). If the KQL query returns multiple rows, always prefer the row where `ProviderIncidentId` matches the user-provided ID. Only fall back to `IncidentNumber` if no `ProviderIncidentId` match exists.
 
 **Date Range Rules:**
 - **Default analysis window:** 7 days before current date to current date (Standard)
@@ -788,7 +790,7 @@ Parameters:
   table: SecurityIncident
   query: |
     SecurityIncident
-    | where IncidentNumber == 12345 or ProviderIncidentId == "12345"
+    | where ProviderIncidentId == "12345" or IncidentNumber == 12345
     | summarize arg_max(TimeGenerated, *) by IncidentNumber
     | project IncidentNumber, ProviderIncidentId, Title, Description, Severity, Status, ...
 ```

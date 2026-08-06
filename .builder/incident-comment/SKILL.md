@@ -94,7 +94,7 @@ Determine the target incident from the user's prompt or conversation context.
 
 | Pattern | Source | How to resolve GUID |
 |---------|--------|---------------------|
-| Numeric (e.g., `12345`) | Defender XDR / Sentinel | Query SecurityIncident by `IncidentNumber` |
+| Numeric (e.g., `12345`) | Defender XDR / Sentinel | Query SecurityIncident by `ProviderIncidentId` (this is what the Defender portal displays as "Incident Id") |
 | GUID | Sentinel internal | Use directly as `IncidentName` |
 | `INxx-xxxxx` | Defender XDR | Query SecurityIncident by `ProviderIncidentId` |
 
@@ -103,15 +103,17 @@ If the incident ID is **numeric** or **INxx-xxxxx** format and you need the GUID
 
 ```kql
 SecurityIncident
-| where IncidentNumber == <NUMERIC_ID> or ProviderIncidentId == "<ID>"
+| where ProviderIncidentId == "<ID>" or IncidentNumber == <NUMERIC_ID>
 | summarize arg_max(TimeGenerated, *) by IncidentNumber
-| project IncidentNumber, IncidentName, Title, ProviderIncidentId
+| project ProviderIncidentId, IncidentNumber, IncidentName, Title
 ```
 
-> **Note:** User-provided numeric IDs are typically the `ProviderIncidentId`
-> (Defender XDR), not the Sentinel `IncidentNumber`. The KQL above searches both
-> fields. Always set `hours` to at least **720** (30 days) to avoid missing older
-> incidents.
+> **⚠️ CRITICAL — Disambiguation Rule:**
+> The Defender XDR portal displays `ProviderIncidentId` as the incident number,
+> **not** Sentinel's internal `IncidentNumber`. When the KQL returns multiple rows,
+> **always prefer the row where `ProviderIncidentId` matches the user-provided ID**.
+> Only fall back to `IncidentNumber` if no `ProviderIncidentId` match is found.
+> Always set `hours` to at least **720** (30 days) to avoid missing older incidents.
 
 Execute via `monitor-client_monitor_workspace_log_query` with:
 - `workspace`: `951fd5ab-18a2-40c9-8b77-aca135d16fb9`
@@ -331,8 +333,8 @@ If the API call fails:
 **User:** "Add this comment to incident 12345: The user confirmed this was an authorized test."
 
 ```
-Step 1: KQL → SecurityIncident | where IncidentNumber == 12345 or ProviderIncidentId == "12345"
-        → Found: ProviderIncidentId=12345, IncidentName (GUID) = "abc-def-..."
+Step 1: KQL → SecurityIncident | where ProviderIncidentId == "12345" or IncidentNumber == 12345
+   → Found: ProviderIncidentId=12345 (preferred match), IncidentName (GUID) = "abc-def-..."
 Step 2: Content = "The user confirmed this was an authorized test." → save to tmp file
 Step 3: python3 format_comment.py input.txt --output-json body.json
             --output-readable body_readable.txt --api sentinel
