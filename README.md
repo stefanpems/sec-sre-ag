@@ -364,6 +364,15 @@ Expected runtime schema:
 environment variables at runtime. `config.json`, output, and report directories
 are excluded by `.gitignore`.
 
+Before completing setup sections 1 and 2, clone the repository and make all
+setup scripts executable in **Azure Cloud Shell (Bash)**:
+
+```bash
+git clone https://github.com/stefanpems/sec-sre-ag.git
+cd sec-sre-ag/setup
+chmod +x *.sh
+```
+
 ### 1. API Permissions (Entra ID — Graph + MDE)
 
 The agent's **User-Assigned Managed Identity (UAMI)** needs **Application
@@ -412,9 +421,6 @@ All permissions above are **Application** type (not Delegated). All are read-onl
 Run [`setup/assign-permissions.sh`](setup/assign-permissions.sh) from **Azure Cloud Shell (Bash)** with an account that has **Global Administrator** or **Privileged Role Administrator** role:
 
 ```bash
-git clone https://github.com/stefanpems/sec-sre-ag.git
-cd sec-sre-ag/setup
-chmod +x assign-permissions.sh
 ./assign-permissions.sh <UAMI_OBJECT_ID> <SUBSCRIPTION_ID>
 ```
 
@@ -454,8 +460,6 @@ The UAMI also needs Azure RBAC roles for Sentinel workspace access and (optional
 Run [`setup/assign-azure-roles.sh`](setup/assign-azure-roles.sh) from **Azure Cloud Shell (Bash)** with an account that has **Owner** or **User Access Administrator** on the target scope:
 
 ```bash
-cd sec-sre-ag/setup
-chmod +x assign-azure-roles.sh
 ./assign-azure-roles.sh <UAMI_CLIENT_ID> <WORKSPACE_RESOURCE_ID> [KEYVAULT_RESOURCE_ID]
 ```
 
