@@ -17,6 +17,7 @@ name: Analytic Rules with MITRE Mapping
 description: Fetch Scheduled + NRT analytic rules via Sentinel REST API with tactics and techniques
 phase: 1
 type: rest
+max_response_kb: 500
 url: https://management.azure.com/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/Microsoft.OperationalInsights/workspaces/{workspace_name}/providers/Microsoft.SecurityInsights/alertRules?api-version=2024-03-01
 jmespath: value[?kind=='Scheduled' || kind=='NRT'].{displayName:properties.displayName, ruleId:name, enabled:properties.enabled, kind:kind, severity:properties.severity, tactics:properties.tactics, techniques:properties.techniques, query:properties.query, alertRuleTemplateName:properties.alertRuleTemplateName, queryFrequency:properties.queryFrequency}
 
@@ -52,9 +53,10 @@ scope: CustomDetection.Read.All
 
 id: mitre-m3
 name: SOC Optimization Coverage Recommendations
-description: Fetch SOC Optimization recommendations via Sentinel REST API (preview)
+description: Fetch SOC Optimization recommendations via Sentinel REST API (preview). Response can be 300-700KB due to nested CoverageEntities.
 phase: 2
 type: rest
+max_response_kb: 800
 url: https://management.azure.com/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/Microsoft.OperationalInsights/workspaces/{workspace_name}/providers/Microsoft.SecurityInsights/recommendations?api-version=2024-01-01-preview
 jmespath: value[?starts_with(properties.recommendationTypeId, 'Precision_Coverage')].{id:name, title:properties.title, state:properties.state, typeId:properties.recommendationTypeId, description:properties.description, useCaseName:properties.additionalProperties.UseCaseName, suggestions:properties.suggestions}
 
@@ -247,4 +249,5 @@ name: Table Tier Classification
 description: Fetch table plan metadata via az CLI — identifies tables on Basic/Data Lake tier that analytics rules cannot query
 phase: 3
 type: cli
-command: az monitor log-analytics workspace table list --resource-group {resource_group} --workspace-name {workspace_name} --subscription {subscription_id} --query "[].{name:name, plan:plan}" -o json
+max_response_kb: 200
+command: az monitor log-analytics workspace table list --resource-group {resource_group} --workspace-name {workspace_name} --subscription {subscription_id} --query "[?plan!='Analytics'].{name:name, plan:plan}" -o json

@@ -188,6 +188,286 @@ def get_kql_table_names(query: str) -> list[str]:
     return sorted(tables)
 
 
+def _narrative(section_id: str, instructions: str, data_sources: str) -> str:
+    return (f'<!-- LLM_NARRATIVE: {section_id} -->\n'
+            f'<!-- Instructions: {instructions} -->\n'
+            f'<!-- Data sources: {data_sources} -->\n'
+            '<!-- /LLM_NARRATIVE -->')
+
+
+def _prerendered_section(block: str, name: str) -> str:
+    match = re.search(rf'^### {re.escape(name)}\s*$\n(.*?)(?=^### |\Z)', block,
+                      flags=re.MULTILINE | re.DOTALL)
+    return match.group(1).strip() if match else '<!-- NO_DATA -->'
+
+
+def _score_assessment(score: float) -> str:
+    if score >= 80:
+        return '🟢 Strong'
+    if score >= 60:
+        return '🔵 Good'
+    if score >= 40:
+        return '🟡 Moderate'
+    if score >= 20:
+        return '🟠 Developing'
+    return '🔴 Critical'
+
+
+def build_report(context: dict) -> str:
+    """Build a deterministic report skeleton from computed scan data."""
+    meta = context['meta']
+    score = context['score']
+    inventory = context['inventory']
+    attack_ref = context['attack_ref']
+    tactic_order = context['tactic_order']
+    tactic_display = context['tactic_display']
+    tactic_rule_count = context['tactic_rule_count']
+    technique_rule_count = context['technique_rule_count']
+    tier1 = context['tier1_techniques']
+    tier2 = context['tier2_techniques']
+    untagged_rules = context['untagged_rules']
+    ics_techs = context['ics_techs']
+    technique_rule_names = context['technique_rule_names']
+    parsed_scenarios = context['parsed_scenarios']
+    prerendered = context['prerendered_block']
+
+    top_recommendations = []
+    scenario_candidates = [
+        scenario for scenario in parsed_scenarios
+        if scenario['Recommended'] > 0
+        and not (scenario['State'] == 'CompletedByUser' and scenario['CompletionRate'] >= 50)
+    ]
+    scenario_candidates.sort(key=lambda scenario: scenario['CompletionRate'])
+    if scenario_candidates:
+        scenario = scenario_candidates[0]
+        top_recommendations.append((
+            '🔴' if scenario['CompletionRate'] < 15 else '🟠',
+            f'Address {scenario["Scenario"]} coverage',
+            f'{scenario["Active"]}/{scenario["Recommended"]} active detections ({scenario["CompletionRate"]}%)',
+        ))
+    actionable_zero = [
+        tactic for tactic in tactic_order
+        if tactic not in ('Reconnaissance', 'ResourceDevelopment')
+        and tactic_rule_count.get(tactic, 0) == 0
+    ]
+    if actionable_zero:
+        names = ', '.join(tactic_display[tactic] for tactic in actionable_zero[:3])
+        top_recommendations.append(('🔴', f'Add detection coverage for {names}',
+                                    f'{len(actionable_zero)} detectable tactic(s) have no enabled rules'))
+    if untagged_rules:
+        top_recommendations.append(('🟠', 'Apply MITRE tags to untagged rules',
+                                    f'{len(untagged_rules)} rule(s) are excluded from coverage analysis'))
+    low_coverage = []
+    for tactic in tactic_order:
+        tactic_data = attack_ref['tactics'].get(tactic, {})
+        total = tactic_data.get('techniqueCount', 0)
+        covered = sum(1 for tech in tactic_data.get('techniques', [])
+                      if technique_rule_count.get(tech['id'], 0) > 0)
+        percentage = 100.0 * covered / total if total else 0
+        if 0 < percentage <= 15:
+            low_coverage.append((percentage, tactic, covered, total))
+    for percentage, tactic, covered, total in sorted(low_coverage):
+        top_recommendations.append(('🟡', f'Deepen {tactic_display[tactic]} coverage',
+                                    f'{covered}/{total} techniques covered ({percentage:.1f}%)'))
+    if not top_recommendations:
+        top_recommendations.append(('🟡', 'Validate detection efficacy with purple-team tests',
+                                    'Confirm deployed detections fire against representative ATT&CK techniques'))
+    fallback_recommendations = [
+        ('🟡', 'Review data readiness and connector health',
+         'Confirm every enabled rule has healthy, queryable source data'),
+        ('🟡', 'Review SOC Optimization monthly',
+         'Track new environment-relevant Content Hub recommendations'),
+        ('🟡', 'Refresh ATT&CK mappings quarterly',
+         'Keep rule tags and framework references current'),
+    ]
+    for fallback in fallback_recommendations:
+        if len(top_recommendations) >= 3:
+            break
+        top_recommendations.append(fallback)
+    top_recommendation_lines = [
+        '| # | Priority | Recommendation | Impact |',
+        '|---|----------|----------------|--------|',
+    ]
+    for index, (priority, recommendation, impact) in enumerate(top_recommendations[:3], 1):
+        top_recommendation_lines.append(f'| {index} | {priority} | **{recommendation}** | {impact} |')
+
+    lines = [
+        '# MITRE ATT&CK Coverage Report', '',
+        f'**Generated:** {meta["generated"]}',
+        f'**Workspace:** {meta["workspace_name"]}',
+        f'**Workspace ID:** {meta["workspace_id"]}',
+        f'**ATT&CK Version:** Enterprise v{attack_ref["version"]} '
+        f'({attack_ref["totalTechniques"]} techniques, {attack_ref["totalSubTechniques"]} sub-techniques)',
+        f'**Alert/Incident Lookback:** {meta["days"]} days', '',
+        '> This report analyzes detection coverage against the MITRE ATT&CK Enterprise framework based on rule MITRE tagging and operational alert data. Coverage percentages reflect enabled rules with MITRE tags — actual detection efficacy depends on data source availability, rule quality, and adversary behavior. All recommendations require human review and validation against organizational threat priorities before implementation.', '',
+        '> *Why this report?* The built-in [Sentinel MITRE ATT&CK dashboard](https://security.microsoft.com/sentinel/mitre) ([docs](https://learn.microsoft.com/en-us/azure/sentinel/mitre-coverage?tabs=defender-portal)) only shows coverage for active Analytic Rules and Hunting Queries — it does **not** account for product-native platform alerts (MDE, MDI, MDCA, etc.), Custom Detection rules, or inherent Defender XDR coverage capabilities. This report fills that gap by combining rule-based coverage with platform alert evidence (Tier 1/2/3) and [SOC Optimization](https://security.microsoft.com/sentinel/precision) threat scenario alignment to provide a comprehensive view of actual detection posture.', '',
+        '> *Custom Detections migration:* Microsoft is [unifying detection authoring](https://techcommunity.microsoft.com/blog/microsoftthreatprotectionblog/custom-detections-are-now-the-unified-experience-for-creating-detections-in-micr/4463875) around Custom Detections as the preferred rule type — offering unlimited real-time detections, lower ingestion costs, and seamless Defender XDR integration. This report already inventories Custom Detections alongside Analytic Rules to ensure coverage tracking remains accurate as the migration progresses.', '',
+        '## 1. Executive Summary', '',
+        f'### 🎯 MITRE Coverage Score: **{score["final"]}/100** — {_score_assessment(score["final"])}', '',
+        '| Dimension | Score | Weight | Interpretation |',
+        '|-----------|-------|--------|----------------|',
+        f'| **Breadth** | {score["breadth"]}/100 | 25% | {score["weighted_credit"]}/{score["framework_total"]} readiness-weighted rule credit; {score["combined_total"]}/{score["framework_total"]} combined ({score["combined_pct"]}%) — blended 60/40 |',
+        f'| **Balance** | {score["balance"]}/100 | 10% | {score["tactics_with_rules"]}/14 tactics have ≥1 enabled rule |',
+        f'| **Operational** | {score["operational"]}/100 | 30% | {score["firing_mitre_rules"]}/{score["mitre_tagged_enabled"]} MITRE-tagged enabled rules produced alerts in {meta["days"]}d |',
+        f'| **Tagging** | {score["tagging"]}/100 | 15% | {score["tagged_rules"]}/{score["total_rules"]} total rules have MITRE ATT&CK tags |',
+        f'| **SOC Alignment** | {score["soc_alignment"]}/100 | 20% | {score["completed_soc"]}/{score["total_soc"]} SOC coverage scenarios met |', '',
+        _narrative('exec_summary_context',
+                   'Write 2-3 sentences interpreting score dimensions, Custom Detection skip status, breadth context, and phantom techniques.',
+                   'SCORE.*, PHASE_1.AR_Summary, PHASE_1.CD_Summary, META.Days'), '',
+        '### 📊 Detection Inventory', '',
+        '| Metric | Count |', '|--------|-------|',
+        f'| Total Analytic Rules | {inventory["ar_total"]} |',
+        f'| Enabled AR (tagged / untagged) | {inventory["ar_enabled"]} ({inventory["ar_enabled"] - inventory["ar_no_mitre_enabled"]} / {inventory["ar_no_mitre_enabled"]}) |',
+        f'| Disabled AR | {inventory["ar_disabled"]} |',
+        f'| Custom Detections (total) | {inventory["cd_total"] if inventory["cd_status"] == "OK" else inventory["cd_status"]} |',
+        f'| Enabled CD (tagged / untagged) | {inventory["cd_enabled"]} ({inventory["cd_enabled"] - inventory["cd_no_mitre_enabled"]} / {inventory["cd_no_mitre_enabled"]}) |',
+        f'| Disabled CD | {inventory["cd_disabled"]} |',
+        f'| **Combined Enabled Rules** | **{inventory["ar_enabled"] + inventory["cd_enabled"]}** |',
+        f'| Rules with MITRE tags | {score["tagged_rules"]}/{score["total_rules"]} |',
+        f'| Untagged rules | {len(untagged_rules)} |',
+        f'| Techniques covered | {score["rule_covered"]}/{score["framework_total"]} |',
+        f'| Tactics with ≥1 rule | {score["tactics_with_rules"]}/14 |',
+        f'| Data readiness | {score["readiness_ready"]}/{score["readiness_total"]} ready ({score["readiness_pct"]}%) |', '',
+        '### 🛡️ Platform Coverage', '',
+        '| Layer | Techniques | Description |', '|-------|-----------|-------------|',
+        f'| 🟢 **Tier 1: Alert-Proven** | {score["tier1"]} | Platform products triggered MITRE-attributed alerts in the last {meta["days"]}d |',
+        f'| 🔵 **Tier 2: Deployed Capability** | {score["tier2"]} | Active products have CTID detect coverage but no alerts in the window |',
+        f'| ⬜ **Tier 3: Catalog Capability** | {score["tier3"]} | CTID coverage with no active-product evidence |',
+        f'| **Rule-Based** | {score["rule_covered"]} | Enabled analytic rules and Custom Detections |',
+        f'| **Combined (Rule-Based + T1 + T2)** | **{score["combined_total"]}/{score["framework_total"]} ({score["combined_pct"]}%)** | Unique techniques covered by an active detection source |', '',
+        f'> CTID Mapping v{score["ctid_version"]}. Platform coverage is supplementary; custom rules provide environment-specific detections.', '',
+        '### 🎯 Top 3 Recommendations', '',
+        *top_recommendation_lines, '',
+        '## 2. Tactic Coverage Matrix', '',
+        '> Compare with the built-in Sentinel MITRE ATT&CK dashboard, which shows Analytic Rule and Hunting Query coverage only. This matrix also includes Custom Detections; §5.1 adds platform coverage.', '',
+        _prerendered_section(prerendered, 'TacticCoverageMatrix'), '',
+        _narrative('tactic_matrix_analysis',
+                   'Write 2-3 sentences on zero-coverage tactics, rule concentration, and combined platform uplift.',
+                   'PRERENDERED.TacticCoverageMatrix, PRERENDERED.CombinedTacticCoverage, SCORE.RuleBasedPlusPlatform_Coverage'), '',
+        '## 3. Technique Deep Dive', '',
+    ]
+
+    technique_block = _prerendered_section(prerendered, 'TechniqueTables')
+    tactic_chunks = re.split(r'(?=^#### )', technique_block, flags=re.MULTILINE)
+    tactic_ids = ['recon', 'resource_development', 'initial_access', 'execution', 'persistence',
+                  'privilege_escalation', 'defense_evasion', 'credential_access', 'discovery',
+                  'lateral_movement', 'collection', 'command_and_control', 'exfiltration', 'impact']
+    chunks = [chunk.strip() for chunk in tactic_chunks if chunk.strip() and chunk.lstrip().startswith('#### ')]
+    for index, chunk in enumerate(chunks):
+        lines.extend([chunk, '', _narrative(
+            f'technique_{tactic_ids[index]}',
+            'Write 1-2 sentences about concentration, true gaps, and relevant operational or scenario cross-references.',
+            f'PRERENDERED.TechniqueTables tactic {index + 1}, ThreatScenarios, DataReadiness'), ''])
+
+    lines.extend([f'### Untagged Rules ({len(untagged_rules)} rules without MITRE tags)', '',
+                  '| Rule Name | Rule ID | Enabled | Kind | Severity | Source |',
+                  '|-----------|---------|---------|------|----------|--------|'])
+    for rule in untagged_rules:
+        lines.append(f'| {rule["Name"]} | {rule["RuleId"]} | {rule["Enabled"]} | {rule["Kind"]} | {rule["Severity"]} | {rule["Source"]} |')
+    lines.extend(['', '> ⚠️ These rules have no MITRE ATT&CK tactics or techniques assigned and cannot contribute to coverage analysis.', ''])
+    if ics_techs:
+        lines.extend(['### ICS/OT Technique Coverage', '', '| Technique | Rules | Detections |', '|-----------|-------|------------|'])
+        for tech_id in ics_techs:
+            names = '; '.join(technique_rule_names.get(tech_id, [])[:3])
+            lines.append(f'| {tech_id} | {technique_rule_count.get(tech_id, 0)} | {names} |')
+        lines.extend(['', '> ICS/OT techniques use ATT&CK for ICS and are excluded from the Enterprise coverage score.', ''])
+
+    detectable = set(tactic_order) - {'Reconnaissance', 'ResourceDevelopment'}
+    zero_tactics = [t for t in tactic_order if tactic_rule_count.get(t, 0) == 0]
+    lines.extend(['## 4. Coverage Gap Analysis', '',
+                  '### Actionable Gaps (0% Coverage — Detectable Tactics)', '',
+                  '| Tactic | Framework Techniques | True Gaps | Platform-Covered (T1+T2) |',
+                  '|--------|----------------------|-----------|--------------------------|'])
+    for tactic in zero_tactics:
+        if tactic not in detectable:
+            continue
+        techniques = attack_ref['tactics'][tactic].get('techniques', [])
+        platform_count = sum(1 for tech in techniques if tech['id'] in tier1 or tech['id'] in tier2)
+        lines.append(f'| {tactic_display[tactic]} | {len(techniques)} | {len(techniques) - platform_count} | {platform_count} |')
+    lines.extend(['', '### Inherent Blind Spots (0% Coverage — Pre-Compromise Tactics)', '',
+                  '| Tactic | Framework Techniques | Note |', '|--------|----------------------|------|'])
+    for tactic in zero_tactics:
+        if tactic in detectable:
+            continue
+        count = attack_ref['tactics'][tactic].get('techniqueCount', 0)
+        lines.append(f'| {tactic_display[tactic]} | {count} | Attacker activity occurs primarily outside the monitored environment; use compensating protect/respond controls. |')
+    lines.extend(['', _narrative('gap_analysis_narrative',
+                                 'Write 2-3 sentences on the highest-value true gaps and cross-reference the tactic matrix.',
+                                 'TacticCoverage, PlatformTechniquesByTier, TechniqueTables'), '',
+                  '### Threat Scenario Alignment', '',
+                  '> SOC Optimization compares active analytics with scenario-specific recommended detections. Recommendation totals include templates for products that may not be deployed; prioritize the environment-relevant subset and use completion rate as the progress measure.', '',
+                  _prerendered_section(prerendered, 'ThreatScenarios'), '',
+                  _narrative('threat_scenario_narrative',
+                             'Write 2-3 sentences on the top scenarios and identify compound gaps shared with the tactic matrix.',
+                             'PRERENDERED.ThreatScenarios, PRERENDERED.TacticCoverageMatrix'), '',
+                  '### AI-Suggested MITRE Tags', '',
+                  context['tagging_block'], '',
+                  '## 5. Operational MITRE Correlation', '',
+                  '### 5.1 Platform-Native Detection Coverage', '',
+                  _prerendered_section(prerendered, 'CombinedTacticCoverage'), '',
+                  '### 5.2 Alert-Producing Rules by MITRE Tactic', '',
+                  _prerendered_section(prerendered, 'AlertFiring'), '',
+                  '### 5.3 Active vs Tagged Tactic Coverage', '',
+                  _prerendered_section(prerendered, 'ActiveVsTagged'), '',
+                  '### 5.4 Incidents by Tactic', '',
+                  _prerendered_section(prerendered, 'IncidentsByTactic'), '',
+                  '### 5.5 Data Readiness', '',
+                  _prerendered_section(prerendered, 'DataReadiness'), '',
+                  '> Data readiness validates table-level ingestion presence, not event-level completeness. Complete detection validation requires purple-team exercises mapped to ATT&CK techniques.', '',
+                  '### 5.6 Connector Health', '',
+                  _prerendered_section(prerendered, 'ConnectorHealth'), '',
+                  _narrative('operational_correlation',
+                             'Write 3-5 sentences correlating platform uplift, firing rules, silent rules, readiness, and connector health.',
+                             'All PRERENDERED §5 blocks, SCORE.DataReadiness_*, PHASE_3'), '',
+                  '## 6. Recommendations', '',
+                  _narrative('recommendations',
+                             'Write complete §6 with Quick Wins, Medium-Term Improvements, Ongoing Maintenance, and a Coverage Priority Matrix. Exclude inherent blind spots and reviewed scenarios.',
+                             'All scratchpad sections, especially gaps, scenarios, tagging, silent rules, readiness, and connector health'), '',
+                  '## Appendix', '', '### A. Query Reference', '',
+                  '| Phase | Query | Type | Description | Status |',
+                  '|-------|-------|------|-------------|--------|'])
+    for query in context['query_reference']:
+        lines.append(f'| {query["phase"]} | {query["id"]} | {query["type"]} | {query["description"]} | {query["status"]} |')
+    lines.extend(['', f'**Generated:** {meta["generated"]} | **Execution Time:** {meta["execution_time"]}s | **Phases:** {meta["phases"]}', '',
+                  '### B. MITRE Coverage Score Methodology', '',
+                  'The MITRE Coverage Score is a composite metric (0–100) computed from 5 weighted dimensions. It is designed to reward **operationally validated** detection coverage — teams that purple-team their rules and confirm they fire score higher than teams that deploy rules without validating them.', '',
+                  '#### Dimensions & Weights', '',
+                  '| # | Dimension | Weight | What It Measures |', '|---|-----------|--------|------------------|',
+                  '| 1 | **Breadth** | 25% | Readiness-weighted technique coverage across the ATT&CK framework |',
+                  '| 2 | **Balance** | 10% | Kill chain phase distribution — are all 14 tactics represented? |',
+                  '| 3 | **Operational** | 30% | % of MITRE-tagged rules that actually produced alerts in the lookback period |',
+                  '| 4 | **Tagging** | 15% | % of all rules (enabled + disabled) with at least 1 MITRE tag |',
+                  '| 5 | **SOC Alignment** | 20% | Completion rate of Microsoft SOC Optimization coverage recommendations |', '',
+                  '**Why Operational is the heaviest weight (30%):** A rule that has never fired is unvalidated — it *might* detect an attack, or it might have a broken query, wrong data source, or logic error. Teams that run purple team exercises, atomic tests, or otherwise trigger their detections prove their rules work. This score rewards that effort directly.', '',
+                  '#### Breadth: Readiness-Weighted Credit', '',
+                  'Unlike a simple "technique has a rule = covered" binary, Breadth assigns **fractional credit** per technique based on the data readiness of its **best** covering rule:', '',
+                  '| Rule\'s Best Status | Credit | Meaning |', '|--------------------|--------|---------|',
+                  '| **Fired** (produced alerts) | 1.00 | Validated by real or simulated attack — highest confidence |',
+                  '| **Ready** (data exists, 0 alerts) | 0.75 | Rule *can* fire — data pipeline is healthy, just has not been triggered |',
+                  '| **Partial** (some tables missing) | 0.50 | Rule partially functional — may detect some variants but not all |',
+                  '| **NoData** (zero ingestion) | 0.25 | Paper tiger — technique shows in the matrix but rule cannot fire |',
+                  '| **TierBlocked** (table on wrong tier) | 0.00 | Structurally impossible — rule can never execute |', '',
+                  '**How it works:** For each ATT&CK technique, the system checks every rule covering it and takes the **maximum** credit. If a technique has 1 firing rule and 10 NoData rules, it gets full 1.00 credit — the firing rule proves detection works. Both Analytic Rules (AR) and Custom Detection rules (CD) are assessed with the same readiness constraints.', '',
+                  'The final Breadth score blends 60% readiness-weighted rule coverage + 40% combined coverage (rules + platform Tier 1 + Tier 2 detections).', '',
+                  '#### Score Interpretation', '',
+                  '| Score Range | Assessment | Typical Profile |', '|-------------|------------|-----------------|',
+                  '| 80–100 | 🟢 **Strong** | Broad coverage, balanced tactics, operationally validated, well-tagged, SOC-aligned |',
+                  '| 60–79 | 🔵 **Good** | Solid coverage with some gaps; may have clustering or unvalidated rules |',
+                  '| 40–59 | 🟡 **Moderate** | Significant gaps in breadth or operational validation; improvement opportunities |',
+                  '| 20–39 | 🟠 **Developing** | Limited coverage across the framework; many uncovered tactics |',
+                  '| 0–19 | 🔴 **Critical** | Minimal detection coverage; urgent investment needed |', '',
+                  '### C. Limitations', '',
+                  '1. **Coverage ≠ detection:** Having a rule tagged with a technique does not guarantee detection — rule quality, data source availability, and adversary TTPs vary',
+                  '2. **Operational dimension requires Phase 3:** If KQL queries fail, Operational score defaults to 0. This is a data gap, not necessarily poor operational coverage',
+                  '3. **Custom Detection availability:** Graph API requires `CustomDetection.Read.All` admin consent. If unavailable, coverage metrics are AR-only',
+                  '4. **Sub-technique granularity:** Coverage is measured at the parent technique level (e.g., T1078). Sub-technique-level coverage (T1078.001, T1078.004) would require deeper rule query text analysis',
+                  '5. **ATT&CK framework currency:** The reference JSON reflects a point-in-time snapshot of ATT&CK Enterprise. Update when MITRE publishes new versions',
+                  '6. **SOC Optimization scope:** Coverage recommendations are Microsoft\'s assessment based on deployed data sources and available Content Hub templates. They may not cover custom or third-party detection logic',
+                  '7. **Paper tiger detection** depends on the lookback window — a rule that fires infrequently (quarterly) may appear as a paper tiger in a 30-day window', '',
+                  f'**Report generated:** {meta["generated"]} | **Skill:** mitre-coverage-report v1 | **Mode:** file', ''])
+    return '\n'.join(lines)
+
+
 # ═══════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════
@@ -203,7 +483,13 @@ def main():
     parser.add_argument('--days', type=int, default=30, choices=[7, 14, 30, 60, 90])
     parser.add_argument('--phase', type=int, default=0, choices=[0, 1, 2, 3])
     parser.add_argument('--prefetch-dir', default=None, help='Directory with prefetched m1.json-m9.json files (Mode B)')
+    parser.add_argument('--render-report', action='store_true', default=False,
+                        help='Generate complete report skeleton with LLM narrative placeholders')
+    parser.add_argument('--max-gap-rows', type=int, default=3,
+                        help='Max uncovered (❌) technique rows per tactic in PRERENDERED tables (0=count only)')
     args = parser.parse_args()
+    if args.max_gap_rows < 0:
+        parser.error('--max-gap-rows must be 0 or greater')
     prefetch_dir = Path(args.prefetch_dir) if args.prefetch_dir else None
 
     script_dir = Path(__file__).resolve().parent
@@ -357,6 +643,10 @@ def main():
                 if fname:
                     fpath = prefetch_dir / fname
                     if fpath.exists():
+                        file_size_kb = fpath.stat().st_size / 1024
+                        max_kb = int(parsed.get('max_response_kb', 0))
+                        if max_kb > 0 and file_size_kb > max_kb:
+                            print(f'   ⚠️  {q_name}: prefetch file {fname} is {file_size_kb:.0f}KB (limit {max_kb}KB) — loading anyway')
                         with open(fpath, encoding='utf-8') as f:
                             data = json.load(f)
                         if isinstance(data, dict) and '_status' in data:
@@ -408,6 +698,10 @@ def main():
                     if data is not None:
                         if not isinstance(data, list):
                             data = [data]
+                        result_size_kb = len(json.dumps(data).encode()) / 1024
+                        max_kb = int(parsed.get('max_response_kb', 0))
+                        if max_kb > 0 and result_size_kb > max_kb * 1.5:
+                            print(f' ⚠️ response is {result_size_kb:.0f}KB (soft limit {max_kb}KB)', end='')
                         all_results[q_id] = data
                         print(f' ✅ {len(data)} items ({elapsed}s)')
                     else:
@@ -428,6 +722,10 @@ def main():
                         values = data.get('value', []) if isinstance(data, dict) else data
                         if not isinstance(values, list):
                             values = [values]
+                        result_size_kb = len(json.dumps(values).encode()) / 1024
+                        max_kb = int(parsed.get('max_response_kb', 0))
+                        if max_kb > 0 and result_size_kb > max_kb * 1.5:
+                            print(f' ⚠️ response is {result_size_kb:.0f}KB (soft limit {max_kb}KB)', end='')
                         all_results[q_id] = values
                         print(f' ✅ {len(values)} rules ({elapsed}s)')
                     else:
@@ -449,6 +747,10 @@ def main():
                     if data is not None:
                         if not isinstance(data, list):
                             data = [data]
+                        result_size_kb = len(json.dumps(data).encode()) / 1024
+                        max_kb = int(parsed.get('max_response_kb', 0))
+                        if max_kb > 0 and result_size_kb > max_kb * 1.5:
+                            print(f' ⚠️ response is {result_size_kb:.0f}KB (soft limit {max_kb}KB)', end='')
                         all_results[q_id] = data
                         print(f' ✅ {len(data)} rows ({elapsed}s)')
                     else:
@@ -467,6 +769,10 @@ def main():
                     if data is not None:
                         if not isinstance(data, list):
                             data = [data]
+                        result_size_kb = len(json.dumps(data).encode()) / 1024
+                        max_kb = int(parsed.get('max_response_kb', 0))
+                        if max_kb > 0 and result_size_kb > max_kb * 1.5:
+                            print(f' ⚠️ response is {result_size_kb:.0f}KB (soft limit {max_kb}KB)', end='')
                         all_results[q_id] = data
                         print(f' ✅ {len(data)} tables ({elapsed}s)')
                     else:
@@ -1384,9 +1690,9 @@ def main():
         gap_rows = [r for r in rows_data if r[0] == 5]
         non_gap = [r for r in rows_data if r[0] < 5]
         truncated = 0
-        if len(gap_rows) > 3:
-            truncated = len(gap_rows) - 3
-            gap_rows = gap_rows[:3]
+        if len(gap_rows) > args.max_gap_rows:
+            truncated = len(gap_rows) - args.max_gap_rows
+            gap_rows = gap_rows[:args.max_gap_rows]
         display_rows = non_gap + gap_rows
 
         if comb > cov:
@@ -1764,11 +2070,76 @@ CTID_Version: {ctid_ref.get('metadata', {}).get('ctid_version', 'N/A') if ctid_r
 
     file_size = round(scratchpad_path.stat().st_size / 1024, 1)
 
+    report_path = None
+    if args.render_report:
+        report_root = workspace_root if config_found else script_dir.parent
+        report_dir = report_root / 'reports' / 'mitre-coverage-report'
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_path = report_dir / f'MITRE_Coverage_Report_{ts}.md'
+
+        tagging_block = _prerendered_section(phase2_block, 'MitreTaggingSuggestions')
+        if tagging_block == '<!-- NO_DATA -->':
+            tagging_block = '(No MITRE tagging recommendations found)'
+
+        query_reference = []
+        for query_id, query in all_queries.items():
+            result = all_results.get(query_id, {})
+            status = result.get('_status', 'OK') if isinstance(result, dict) else 'OK'
+            query_reference.append({
+                'phase': query.get('phase', ''),
+                'id': query_id.replace('mitre-', '').upper(),
+                'type': query.get('type', '').upper(),
+                'description': query.get('name', ''),
+                'status': status,
+            })
+
+        report_context = {
+            'meta': {
+                'generated': now_iso, 'workspace_name': workspace_name,
+                'workspace_id': workspace_id, 'days': days,
+                'execution_time': total_query_time,
+                'phases': ','.join(str(p) for p in phases_to_run),
+            },
+            'score': {
+                'final': final_score, 'breadth': breadth_score, 'balance': balance_score,
+                'operational': operational_score, 'tagging': tagging_score,
+                'soc_alignment': soc_align_score, 'weighted_credit': round(total_weighted_credit, 2),
+                'framework_total': total_framework_techs, 'combined_total': total_combined_techs,
+                'combined_pct': overall_combined_pct, 'tactics_with_rules': tactics_with_rules,
+                'firing_mitre_rules': firing_mitre_rules, 'mitre_tagged_enabled': mitre_tagged_enabled,
+                'tagged_rules': tagged_rules, 'total_rules': total_rules,
+                'completed_soc': completed_soc, 'total_soc': total_soc,
+                'tier1': len(tier1_techniques), 'tier2': len(tier2_techniques),
+                'tier3': len(tier3_techniques), 'rule_covered': total_covered_techs,
+                'ctid_version': ctid_ref.get('metadata', {}).get('ctid_version', 'N/A') if ctid_ref else 'N/A',
+                'readiness_ready': ready_count, 'readiness_total': total_checked,
+                'readiness_pct': readiness_pct,
+            },
+            'inventory': {
+                'ar_total': ar_total, 'ar_enabled': ar_enabled, 'ar_disabled': ar_disabled,
+                'ar_no_mitre_enabled': ar_no_mitre_enabled, 'cd_status': cd_status,
+                'cd_total': cd_total, 'cd_enabled': cd_enabled, 'cd_disabled': cd_disabled,
+                'cd_no_mitre_enabled': cd_no_mitre_enabled,
+            },
+            'attack_ref': attack_ref, 'tactic_order': tactic_order,
+            'tactic_display': tactic_display, 'tactic_rule_count': tactic_rule_count,
+            'technique_rule_count': technique_rule_count,
+            'technique_rule_names': technique_rule_names,
+            'tier1_techniques': tier1_techniques, 'tier2_techniques': tier2_techniques,
+            'untagged_rules': untagged_rules, 'ics_techs': ics_techs,
+            'parsed_scenarios': parsed_scenarios, 'prerendered_block': prerendered_block,
+            'tagging_block': tagging_block, 'query_reference': query_reference,
+        }
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(build_report(report_context))
+
     print()
     print('━' * 57)
     print('  ✅ Scratchpad written successfully')
     print('━' * 57)
     print(f'  📄 Path: {scratchpad_path}')
+    if report_path:
+        print(f'  📄 Report: {report_path}')
     print(f'  📏 Size: {file_size} KB')
     print(f'  ⏱️  Total time: {total_query_time}s')
     print(f'  📊 MITRE Score: {final_score} / 100')

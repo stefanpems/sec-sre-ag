@@ -1,6 +1,8 @@
 # Report Template — MITRE ATT&CK Coverage (v1)
 
-> **📄 Just-in-time loading:** This file contains the complete report rendering templates (inline chat + markdown file). Load it at the start of **Phase 4 (rendering)** — alongside reading the timestamped scratchpad file (`temp/mitre_scratch_YYYYMMDD_HHmmss.md`). Do NOT load during data gathering (invoke_mitre_scan.py execution).
+> **Note:** When `--render-report` is used, the script generates the report skeleton directly. This file is only needed as a fallback reference when the LLM must render the report manually (for example, if the script's `--render-report` flag is not available in an older version).
+
+> **📄 Fallback just-in-time loading:** For manual rendering only, load this file at the start of **Phase 4 (rendering)** alongside the timestamped scratchpad file (`temp/mitre_scratch_YYYYMMDD_HHmmss.md`). Do NOT load it during data gathering or when `--render-report` is available.
 
 ---
 

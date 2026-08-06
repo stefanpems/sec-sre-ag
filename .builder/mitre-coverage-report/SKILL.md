@@ -53,7 +53,8 @@ This skill generates a comprehensive **MITRE ATT&CK Coverage Report** analyzing 
  │  → reads JSON files instead of running az → scratch                    │
  │                                                                        │
  │  Both modes produce: output/mitre_scratch_<ts>.md (~35 KB)             │
- │  Phase 4: LLM reads scratchpad + SKILL-report.md → renders report      │
+ │  Preferred: --render-report also emits a deterministic report skeleton │
+ │  Phase 4: LLM replaces only the named LLM_NARRATIVE placeholders       │
  └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -61,7 +62,7 @@ This skill generates a comprehensive **MITRE ATT&CK Coverage Report** analyzing 
 - **Phases 1-3** (data gathering): Two modes depending on environment:
   - **Mode A (Direct):** `invoke_mitre_scan.py` runs `az rest` / `az monitor` directly from the terminal. Works when the terminal `az` CLI has valid credentials with `Microsoft Sentinel Reader` role.
   - **Mode B (Prefetch):** The LLM collects data via native tools (`RunAzCliReadCommands` for REST/CLI, `monitor-client` MCP tools for KQL), saves results to JSON files in `tmp/mitre-prefetch/`, then runs `invoke_mitre_scan.py --prefetch-dir tmp/mitre-prefetch/` for post-processing only. **This is the recommended mode** in agent environments where Managed Identity token caching can block terminal `az` for up to 24 hours after RBAC changes.
-- **Phase 4** (rendering): LLM reads the scratchpad + `SKILL-report.md` and renders the report. This is the only phase requiring LLM involvement.
+- **Phase 4** (rendering): Preferred mode reads the generated report skeleton and replaces its named `LLM_NARRATIVE` placeholders. `SKILL-report.md` is needed only for fallback manual rendering on older script versions.
 
 **Static reference:** `mitre-attck-enterprise.json` contains ATT&CK Enterprise v16.1 with 14 tactics, 216 techniques, and 475 sub-techniques. Loaded at startup to compute coverage gaps against the full framework. This file is version-controlled and should be updated when MITRE publishes new ATT&CK releases.
 
@@ -77,7 +78,8 @@ This skill generates a comprehensive **MITRE ATT&CK Coverage Report** analyzing 
 | File | Purpose | When to Load | Runtime Location |
 |------|---------|--------------|------------------|
 | **SKILL.md** (this file) | Architecture, workflow, rendering rules, score methodology, domain reference | Always — primary entry point | `read_skill_file` only |
-| [SKILL-report.md](SKILL-report.md) | Report templates (§1-§6), section-to-scratchpad mapping, formatting rules | Phase 4 rendering only | `read_skill_file` only |
+| [SKILL-report.md](SKILL-report.md) | Fallback report templates (§1-§6), section-to-scratchpad mapping, formatting rules | Fallback manual rendering only | `read_skill_file` only |
+| [SKILL-domain-reference.md](SKILL-domain-reference.md) | ATT&CK tactic priorities, detection guidance, SOC Optimization scenario reference, Sentinel mapping notes | Phase 4 rendering (§4, §6 only) | `read_skill_file` only |
 | [invoke_mitre_scan.py](invoke_mitre_scan.py) | Data-gathering pipeline (Phases 1-3) | Execution only — no need to read unless debugging | **Must be on disk** |
 | [generate_html_report.py](generate_html_report.py) | HTML report generator from scratchpad | Post-report HTML rendering | **Must be on disk** |
 | [queries.yaml](queries.yaml) | All 9 query definitions (M1–M9), multi-document | Referenced at runtime by invoke_mitre_scan.py | **Must be on disk** (same dir as script) |
@@ -230,12 +232,20 @@ Before executing any script resolved via the File Resolution cascade, the agent 
 
 ## Quick Start (TL;DR)
 
-**3-step execution pattern** (file resolution happens automatically on skill activation — see [above](#file-resolution-coderefs-first--on-skill-activation)):
+**Preferred mode (`--render-report`):**
 
 ```
-Step 1:  Run invoke_mitre_scan.py (Phases 1-3 — data gathering)
-Step 2:  Read scratchpad + SKILL-report.md (Phase 4 prep)
-Step 3:  Render report incrementally (§1 via create_file, then §2–§6 appended via replace_string_in_file)
+Step 1:  Run invoke_mitre_scan.py --render-report (Phases 1-3 + report skeleton)
+Step 2:  Read the generated report file
+Step 3:  Fill in the LLM_NARRATIVE placeholders with analytical text
+```
+
+**Fallback mode (manual rendering — only if `--render-report` is not available):**
+
+```
+Step 1:  Run invoke_mitre_scan.py (Phases 1-3 — data gathering only)
+Step 2:  Read scratchpad + SKILL-report.md
+Step 3:  Render report incrementally (§1 via create_file, then §2–§6 appended)
 ```
 
 ### Step 1: Run Data Gathering
@@ -250,7 +260,8 @@ python3 "tmp/mitre-coverage-report/invoke_mitre_scan.py" \
     --subscription-id "<subscription_id>" \
     --resource-group "<resource_group>" \
     --workspace-name "<workspace_name>" \
-    --days 30
+   --days 30 \
+   --render-report
 ```
 
 **Timing:** ~60-90 seconds.
@@ -288,19 +299,24 @@ python3 "tmp/mitre-coverage-report/invoke_mitre_scan.py" \
     --resource-group "<resource_group>" \
     --workspace-name "<workspace_name>" \
     --days 30 \
-    --prefetch-dir "tmp/mitre-prefetch/"
+   --prefetch-dir "tmp/mitre-prefetch/" \
+   --render-report
 ```
 
-**Output (both modes):** Scratchpad file at `output/mitre_scratch_<timestamp>.md` (~28-38 KB).
+**Output (both modes):** Scratchpad file at `output/mitre_scratch_<timestamp>.md` (~28-38 KB) and report skeleton at `reports/mitre-coverage-report/MITRE_Coverage_Report_<timestamp>.md`.
 
-### Step 2: Load Rendering Context
+**Scratchpad size tuning:** `--max-gap-rows N` controls uncovered technique rows in each `PRERENDERED.TechniqueTables` tactic (default `3`). Use `--max-gap-rows 0` to keep only covered/platform rows plus the uncovered-count note when context size is constrained.
 
-1. Read the scratchpad file (path printed by PS1 at completion)
-2. Read [SKILL-report.md](SKILL-report.md) for rendering templates
+### Steps 2-3: Fill Narrative Placeholders
 
-### Step 3: Render Report (Incremental Writes)
+1. Read the generated report path printed by the script.
+2. Replace each `<!-- LLM_NARRATIVE: <section_id> -->` block with the requested analytical text. Keep all deterministic tables and boilerplate unchanged.
+3. Load [SKILL-domain-reference.md](SKILL-domain-reference.md) only while filling §4 and §6 placeholders.
+4. Verify no `LLM_NARRATIVE` markers remain.
 
-Render the report across **multiple tool calls** — one section per call — to avoid single-call output token limits that truncate large reports:
+### Fallback: Manual Incremental Rendering
+
+Only when `--render-report` is unavailable, read the scratchpad and [SKILL-report.md](SKILL-report.md), then render across multiple tool calls:
 
 1. `create_file` → header + disclaimer + §1 (Executive Summary, Score, Inventory, Top 3 Recs)
 2. `replace_string_in_file` → append §2 (Tactic Coverage Matrix)
@@ -327,7 +343,7 @@ Apply SKILL-report.md templates to scratchpad data, following Rules A–D. See [
 4. **ALWAYS ask the user for timeframe** if not specified: the `-Days` parameter controls the alert/incident KQL lookback (Phase 3). Default: 30 days. Phases 1-2 (REST API) are not time-bounded
 5. **ALWAYS use `create_file` for markdown reports** (never use terminal commands)
 6. **ALWAYS sanitize PII** from saved reports — use generic placeholders for real rule names, workspace names, and tenant GUIDs in committed files
-7. **Read scratchpad + SKILL-report.md** before rendering — the scratchpad is the sole data source
+7. **Preferred:** read the generated report skeleton and fill its placeholders. **Fallback only:** read scratchpad + SKILL-report.md before manual rendering
 8. **Custom Detections may be SKIPPED** — the Graph API requires `CustomDetection.Read.All` which needs admin consent. If skipped, the report notes this and shows AR-only analysis. Do NOT treat SKIPPED as an error — it's a graceful degradation
 
 ### Prerequisites
@@ -411,10 +427,21 @@ Run `invoke_mitre_scan.py` — it handles all 3 phases automatically:
 
 ### Phase 4: Render Output (LLM)
 
-**🔴 MANDATORY — Load scratchpad + report template before rendering:**
+#### Preferred: Deterministic Skeleton
 
-1. **Read the scratchpad file** (path printed at completion). This single file contains ALL data from Phases 1-3.
-2. **Read [SKILL-report.md](SKILL-report.md)** for the complete rendering templates and formatting rules.
+1. Run `invoke_mitre_scan.py` with `--render-report`; this writes the unchanged scratchpad plus `reports/mitre-coverage-report/MITRE_Coverage_Report_<timestamp>.md`.
+2. Read the generated report skeleton. The script has already applied all templates, static boilerplate, computed values, and `PRERENDERED` tables.
+3. Replace every `<!-- LLM_NARRATIVE: <section_id> -->` block with the requested analysis. Do not modify deterministic tables.
+4. Load [SKILL-domain-reference.md](SKILL-domain-reference.md) only for §4 and §6 analysis. Do not load `SKILL-report.md`.
+5. Verify no `LLM_NARRATIVE` markers remain before delivery.
+
+#### Fallback: Manual Rendering
+
+Use this path only if an older `invoke_mitre_scan.py` does not support `--render-report`:
+
+1. Read the scratchpad file printed at completion.
+2. Read [SKILL-report.md](SKILL-report.md) for the complete templates and formatting rules.
+3. Render §1–§6 incrementally using the six-write workflow in Quick Start.
 
 **Pre-render validation:**
 1. Verify scratchpad has all 3 phase sections (PHASE_1 through PHASE_3)
@@ -623,72 +650,7 @@ The MITRE Coverage Score is a composite metric (0-100) computed by the PS1 from 
 
 ## Domain Reference
 
-### ATT&CK Enterprise Tactic Kill Chain Order
-
-| # | Tactic (Sentinel API name) | Display Name | Cloud/Identity Relevance | Detectability |
-|---|----------------------------|--------------|--------------------------|---------------|
-| 1 | Reconnaissance | Reconnaissance | 🟡 Low | ⬜ Inherent blind spot |
-| 2 | ResourceDevelopment | Resource Development | 🟡 Low | ⬜ Inherent blind spot |
-| 3 | InitialAccess | Initial Access | 🔴 High | ✅ Detectable |
-| 4 | Execution | Execution | 🟠 Medium | ✅ Detectable |
-| 5 | Persistence | Persistence | 🔴 High | ✅ Detectable |
-| 6 | PrivilegeEscalation | Privilege Escalation | 🔴 High | ✅ Detectable |
-| 7 | DefenseEvasion | Defense Evasion | 🟠 Medium | ✅ Detectable |
-| 8 | CredentialAccess | Credential Access | 🔴 High | ✅ Detectable |
-| 9 | Discovery | Discovery | 🟡 Medium | ✅ Detectable |
-| 10 | LateralMovement | Lateral Movement | 🟠 Medium | ✅ Detectable |
-| 11 | Collection | Collection | 🟡 Medium | ✅ Detectable |
-| 12 | CommandAndControl | Command and Control | 🟠 Medium | ✅ Detectable |
-| 13 | Exfiltration | Exfiltration | 🟠 Medium | ✅ Detectable |
-| 14 | Impact | Impact | 🟠 Medium | ✅ Detectable |
-
-**Detectability classification:**
-- **✅ Detectable:** Techniques generate observable events in Sentinel data sources. KQL detection rules can be written and deployed.
-- **⬜ Inherent blind spot:** Attacker activity occurs *outside* the monitored environment. No KQL detection rules can realistically be created. **Do not recommend deploying rules for inherent blind spot tactics.**
-
-### Sentinel-Specific MITRE Mapping Notes
-
-- **Sentinel uses PascalCase** for tactic names in the REST API: `InitialAccess`, `CommandAndControl`. The ATT&CK STIX data uses kebab-case. The reference JSON maps between these.
-- **Sub-techniques (T1xxx.xxx)** are tracked by Sentinel but coverage is measured at the parent technique level.
-- **ICS/OT techniques (T0xxx)** use a separate numbering scheme and are reported separately.
-- **Custom Detection `mitreTechniques`** uses the same technique ID format but may specify sub-techniques that analytic rules don't.
-
-### Tactic-Specific Detection Guidance
-
-When rendering recommendations (§6), use these cloud/identity-relevant technique priorities:
-
-| Tactic | Key Sentinel-Detectable Techniques | Priority |
-|--------|------------------------------------|----------|
-| InitialAccess | T1078 (Valid Accounts), T1566 (Phishing), T1133 (External Remote Services) | 🔴 Must-have |
-| Persistence | T1098 (Account Manipulation), T1136 (Create Account), T1078 (Valid Accounts) | 🔴 Must-have |
-| CredentialAccess | T1110 (Brute Force), T1528 (Steal App Access Token), T1621 (MFA Request Gen) | 🔴 Must-have |
-| PrivilegeEscalation | T1484 (Domain/Tenant Policy Mod), T1078 (Valid Accounts), T1098 (Account Manipulation) | 🔴 Must-have |
-| DefenseEvasion | T1078 (Valid Accounts), T1484 (Domain/Tenant Policy Mod), T1562 (Impair Defenses) | 🟠 Important |
-| Exfiltration | T1567 (Exfil Over Web Service), T1537 (Transfer to Cloud Account) | 🟠 Important |
-| Collection | T1114 (Email Collection), T1213 (Data from Info Repos) | 🟠 Important |
-
-### SOC Optimization Threat Scenario Reference
-
-| Scenario | Key Attack Pattern | Priority Tactics |
-|----------|--------------------|-----------------|
-| AiTM (Adversary in the Middle) | Session token theft, AiTM phishing | InitialAccess, CredentialAccess |
-| BEC (Financial Fraud) | Email account takeover for wire fraud | InitialAccess, CredentialAccess, Persistence |
-| BEC (Mass Credential Harvest) | Large-scale phishing campaigns | InitialAccess, CredentialAccess, DefenseEvasion |
-| Human Operated Ransomware | Post-compromise hands-on keyboard | LateralMovement, CredentialAccess, DefenseEvasion, Impact |
-| Credential Exploitation | Credential stuffing, password spray | InitialAccess, CredentialAccess, Discovery |
-| IaaS Resource Theft | Cloud compute hijacking (crypto mining) | CredentialAccess, Persistence, Impact |
-| Network Infiltration | Traditional network-based attacks | Discovery, LateralMovement, C2 |
-| X-Cloud Attacks | Cross-cloud lateral movement | CredentialAccess, PrivilegeEscalation, Persistence |
-| ERP (SAP) | SAP financial process manipulation | InitialAccess, DefenseEvasion |
-
-### SOC Optimization Recommendation States
-
-| State | Meaning | Report Treatment |
-|-------|---------|-----------------|
-| `Active` | Recommendation is open and actionable | Show as gap |
-| `InProgress` | User has started addressing | Show as in-progress |
-| `CompletedBySystem` | Microsoft's automated assessment found coverage adequate | Use rate-based badge |
-| `Completed` / `CompletedByUser` | User manually marked as complete | Apply Rule E gate |
+> Domain reference material (ATT&CK tactic kill chain, tactic-specific detection guidance, SOC Optimization threat scenario reference, Sentinel MITRE mapping notes) has been moved to [SKILL-domain-reference.md](SKILL-domain-reference.md). Load this file only during Phase 4 rendering when writing §4 (Coverage Gap Analysis) or §6 (Recommendations). It is NOT needed for data gathering (Phases 1-3) or for rendering §1-§3, §5.
 
 ---
 
