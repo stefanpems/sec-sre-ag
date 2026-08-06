@@ -82,13 +82,13 @@ echo "Validating the managed identity and API service principals..."
 MI_DETAILS=$(az rest --method GET \
   --url "https://graph.microsoft.com/v1.0/servicePrincipals/$MANAGED_IDENTITY_OBJECT_ID?\$select=displayName,appId,servicePrincipalType" \
   "${AZ_REST_CONTEXT[@]}" \
-  --query "[displayName,appId,servicePrincipalType]" -o tsv 2>/dev/null) || {
+  --query "join('|', [displayName, appId, servicePrincipalType])" -o tsv 2>/dev/null) || {
   echo "ERROR: Object ID '$MANAGED_IDENTITY_OBJECT_ID' is not a service principal"
   echo "       in target tenant '$TARGET_TENANT_ID', or it is not readable."
   echo "       Use the Object ID/principal ID, not the client ID."
   exit 1
 }
-IFS=$'\t' read -r MI_DISPLAY_NAME MI_CLIENT_ID MI_PRINCIPAL_TYPE <<< "$MI_DETAILS"
+IFS='|' read -r MI_DISPLAY_NAME MI_CLIENT_ID MI_PRINCIPAL_TYPE <<< "$MI_DETAILS"
 
 if [[ "$MI_PRINCIPAL_TYPE" != "ManagedIdentity" ]]; then
   echo "ERROR: Object ID '$MANAGED_IDENTITY_OBJECT_ID' has servicePrincipalType"
