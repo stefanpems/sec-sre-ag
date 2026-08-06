@@ -168,7 +168,68 @@ Performs comprehensive security investigations on Entra ID user accounts. Collec
 
 ## Setup
 
-### Discover the required IDs
+Complete the bootstrap stages below before assigning API permissions or Azure
+roles. The detailed, customer-ready procedure is in
+[`docs/azure-sre-agent-setup.md`](docs/azure-sre-agent-setup.md).
+
+### A. Create a customer-owned repository
+
+Create a private repository owned by the customer by forking this repository,
+importing it through GitHub, or cloning it and pushing it to a new empty
+repository. Do not deploy directly from `stefanpems/sec-sre-ag`: the customer
+copy is the configuration and change-control boundary for its agent.
+
+Grant access only to the administrators and operators who maintain the agent.
+Enable branch protection and pull-request review if the agent is allowed to
+write code. Never commit PATs, connector credentials, `config.json`, generated
+reports, or investigation output.
+
+### B. Create the Azure SRE Agent
+
+If the customer does not already have an agent, create one at
+<https://sre.azure.com>. Register the `Microsoft.App` resource provider, choose
+a supported region, and start with **Reader** access to only the required
+resource groups. Use a user-assigned managed identity when the identity must be
+shared across connectors or retained independently of the agent.
+
+Creating the agent and its role assignments requires **Owner**, **User Access
+Administrator**, or an equivalent role with
+`Microsoft.Authorization/roleAssignments/write`. Connector setup additionally
+requires **SRE Agent Author** or **Administrator** on the agent.
+
+### C. Configure Code Access and connectors
+
+In the agent portal, connect the customer repository under **Builder > Code
+Access**. For `github.com`, prefer GitHub OAuth for interactive Code Access; it
+does not require a PAT. Code Access provides repository search, reads, and
+context; it does not create file changes or commits. If the agent must maintain
+customer-specific skills and scripts, add a separately governed **GitHub MCP**
+connector with only the required branch, file, commit, and pull-request tools.
+Protect `main` and require changes through reviewed pull requests. Then add the
+connectors below under **Builder > Connectors**:
+
+| Connector | Configuration | Minimum enabled tools |
+|---|---|---|
+| **Outlook Tools (Office 365 Outlook)** | OAuth sign-in plus managed identity | `Send an email` |
+| **Microsoft Teams** | OAuth sign-in plus managed identity | `Post Message in a Chat or Channel`; `Post Message to myself`; `Get message details input metadata`; `Get message details response schema`; `Get response schema` |
+| **Log Analytics Workspace** | Customer subscription, resource group, Sentinel workspace, and managed identity | Connector-provided query operation |
+| **kql-search-mcp** | Stdio; command `npx`; arguments `-y`, `kql-search-mcp`; `GITHUB_TOKEN`; optional `FAVORITE_REPOS` | The 10 tools listed in the detailed guide |
+| **ms-learn-mcp** | Streamable HTTP; `https://learn.microsoft.com/api/mcp`; no authentication | Select all 3 tools |
+| **GitHub MCP** (only when repository writes are required) | GitHub MCP partner connector; separate fine-grained PAT | Only branch, file-content, commit, and pull-request tools required by the approved workflow |
+
+The published `kql-search-mcp` package requires `GITHUB_TOKEN`. Use a separate,
+fine-grained, read-only PAT scoped only to the repositories searched by the MCP
+server. A single PAT can technically serve PAT-authenticated Code Access and
+`kql-search-mcp` on `github.com` when its repository scope and permissions cover
+both, but this is not recommended. OAuth for Code Access plus separate PATs for
+KQL search and write-capable GitHub MCP provides smaller blast radius and
+independent rotation.
+
+Follow the detailed guide for exact fields, PAT permissions, governance
+settings, validation prompts, and the required response when a credential is
+exposed.
+
+### D. Discover the required IDs
 
 Run [`setup/discover-setup-ids.sh`](setup/discover-setup-ids.sh) from **Azure Cloud Shell (Bash)** before assigning permissions. The script uses read-only Azure CLI commands to list the values required by the assignment scripts:
 

@@ -330,6 +330,14 @@ If the user asks to send the report by email, use the `office365_SendEmailV2` to
 
 See [docs/email-html-report.md](../../docs/email-html-report.md) for complete documentation of this pattern.
 
+### Sending the Report through Teams
+
+If the user asks to send the report through Teams, use `PostMessageToConversation` with `poster`, `location`, AND the `body` parameter. The schema does not declare `body`, but the server accepts it. The body contains `recipient` (`groupId` and `channelId` for channels, a chat ID for group chats, or an email address for a Flow bot DM) and `messageBody` (HTML).
+
+> **CRITICAL:** ALWAYS include the `body` parameter even though the tool schema does not declare it. Without `body`, the server returns `"Message body is missing."` or `"Group ID does not exist."`. If the tool returns success, the message was sent — DO NOT send it again.
+
+See [docs/teams-delivery.md](../../docs/teams-delivery.md) for complete JSON patterns for every poster/location combination.
+
 ---
 
 ## Query 1: Incident Overview by Title (with Severity, Status Breakdown, Tactics & Techniques)

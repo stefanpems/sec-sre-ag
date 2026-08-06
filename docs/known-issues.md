@@ -241,6 +241,20 @@ The `office365_SendEmailV2` tool accepts ONLY a **file path in the workspace** i
 
 **Affects:** All skills with `generate_html_report.py` (`identity-posture`, `incident-investigation`, `incident-statistics`, `sentinel-ingestion-report`, `mcp-usage-monitoring`, `computer-investigation`, `user-investigation`, `mitre-coverage-report`).
 
+### 3.4 Teams `PostMessageToConversation` — the `body` Parameter Is Missing from the Schema
+
+The Teams connector's `PostMessageToConversation` tool declares only `poster` and `location` in its schema (with `additionalProperties: false`). However, the MCP server **accepts** a third `body` parameter containing the recipient (`recipient`) and message content (`messageBody`).
+
+If the agent omits `body`, the server returns:
+- `"Message body is missing."` for Flow bot / Chat with Flow bot
+- `"Group ID does not exist."` for User / Channel
+
+**Workaround:** ALWAYS pass `body` as an additional parameter with `poster` and `location`, even though the schema does not declare it. The framework does not discard it.
+
+**Complete reference:** See [docs/teams-delivery.md](teams-delivery.md) for JSON patterns for every poster/location combination.
+
+**Affects:** All skills that send notifications or reports through Teams.
+
 ---
 
 ## Using This Guide with the Agent
