@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Assign API permissions to SRE Agent User-Assigned Managed Identity
+# Assign API permissions to the SRE Agent Managed Identity
 # ============================================================================
 # Run this script in Azure Cloud Shell (Bash) with an account that has
 # Global Administrator or Privileged Role Administrator role in Entra ID.
@@ -13,11 +13,15 @@
 #
 # Usage:
 #   chmod +x assign-permissions.sh
-#   ./assign-permissions.sh <UAMI_OBJECT_ID>
+#   ./assign-permissions.sh <MANAGED_IDENTITY_OBJECT_ID> [SUBSCRIPTION_ID]
 #
 # Where:
-#   UAMI_OBJECT_ID = Object ID of the User-Assigned Managed Identity
-#                    (find it in Azure Portal → Managed Identities → Overview)
+#   MANAGED_IDENTITY_OBJECT_ID = Object ID (principal ID) of the managed
+#                                identity used by the SRE Agent at runtime
+#   SUBSCRIPTION_ID            = Subscription containing the SRE Agent. When
+#                                omitted, the active Azure CLI subscription is
+#                                used. The subscription selects the Entra tenant
+#                                for every Microsoft Graph request.
 #
 # After running: wait up to 1 hour for Entra ID token cache to refresh,
 # or force a new token in the agent's next session.
@@ -29,15 +33,36 @@
 set -euo pipefail
 
 # --- Validate input ---
-if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <UAMI_OBJECT_ID>"
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "Usage: $0 <MANAGED_IDENTITY_OBJECT_ID> [SUBSCRIPTION_ID]"
   echo ""
-  echo "  UAMI_OBJECT_ID  Object ID of the agent's User-Assigned Managed Identity"
-  echo "                  (Azure Portal → Managed Identities → <name> → Overview)"
+  echo "  MANAGED_IDENTITY_OBJECT_ID  Object ID (principal ID) of the managed identity"
+  echo "                              used by the SRE Agent at runtime"
+  echo "  SUBSCRIPTION_ID             Subscription containing the SRE Agent"
   exit 1
 fi
 
-UAMI_OBJECT_ID="$1"
+MANAGED_IDENTITY_OBJECT_ID="$1"
+SUBSCRIPTION_ID="${2:-}"
+
+if [[ -z "$SUBSCRIPTION_ID" ]]; then
+  SUBSCRIPTION_ID=$(az account show --query id -o tsv 2>/dev/null) || {
+    echo "ERROR: Could not read the active Azure CLI subscription."
+    echo "       Run 'az login' or pass SUBSCRIPTION_ID explicitly."
+    exit 1
+  }
+fi
+SUBSCRIPTION_ID="${SUBSCRIPTION_ID//$'\r'/}"
+
+TARGET_TENANT_ID=$(az account show \
+  --subscription "$SUBSCRIPTION_ID" \
+  --query tenantId -o tsv 2>/dev/null) || {
+  echo "ERROR: Subscription '$SUBSCRIPTION_ID' is not available to the signed-in account."
+  echo "       For cross-tenant setup, run 'az login --tenant <TARGET_TENANT_ID>'."
+  exit 1
+}
+TARGET_TENANT_ID="${TARGET_TENANT_ID//$'\r'/}"
+AZ_REST_CONTEXT=(--subscription "$SUBSCRIPTION_ID")
 
 # --- Well-known Application IDs ---
 GRAPH_APP_ID="00000003-0000-0000-c000-000000000000"   # Microsoft Graph
@@ -48,18 +73,45 @@ echo "============================================"
 echo " SRE Agent — Permission Assignment"
 echo "============================================"
 echo ""
-echo "UAMI Object ID: $UAMI_OBJECT_ID"
+echo "Managed identity Object ID: $MANAGED_IDENTITY_OBJECT_ID"
+echo "Target subscription:         $SUBSCRIPTION_ID"
+echo "Target tenant:               $TARGET_TENANT_ID"
 echo ""
-echo "Discovering service principal Object IDs..."
+echo "Validating the managed identity and API service principals..."
 
-GRAPH_SP_OBJECT_ID=$(az ad sp show --id "$GRAPH_APP_ID" --query id -o tsv 2>/dev/null) || {
+MI_DETAILS=$(az rest --method GET \
+  --url "https://graph.microsoft.com/v1.0/servicePrincipals/$MANAGED_IDENTITY_OBJECT_ID?\$select=displayName,appId,servicePrincipalType" \
+  "${AZ_REST_CONTEXT[@]}" \
+  --query "[displayName,appId,servicePrincipalType]" -o tsv 2>/dev/null) || {
+  echo "ERROR: Object ID '$MANAGED_IDENTITY_OBJECT_ID' is not a service principal"
+  echo "       in target tenant '$TARGET_TENANT_ID', or it is not readable."
+  echo "       Use the Object ID/principal ID, not the client ID."
+  exit 1
+}
+IFS=$'\t' read -r MI_DISPLAY_NAME MI_CLIENT_ID MI_PRINCIPAL_TYPE <<< "$MI_DETAILS"
+
+if [[ "$MI_PRINCIPAL_TYPE" != "ManagedIdentity" ]]; then
+  echo "ERROR: Object ID '$MANAGED_IDENTITY_OBJECT_ID' has servicePrincipalType"
+  echo "       '$MI_PRINCIPAL_TYPE', not 'ManagedIdentity'."
+  exit 1
+fi
+echo "  Managed identity:          $MI_DISPLAY_NAME"
+echo "  Managed identity client ID: $MI_CLIENT_ID"
+
+GRAPH_SP_OBJECT_ID=$(az rest --method GET \
+  --url "https://graph.microsoft.com/v1.0/servicePrincipals?\$filter=appId%20eq%20'$GRAPH_APP_ID'&\$select=id" \
+  "${AZ_REST_CONTEXT[@]}" \
+  --query "value[0].id" -o tsv 2>/dev/null) || {
   echo "ERROR: Could not find Microsoft Graph service principal."
-  echo "       Ensure you are logged in: az login"
+  echo "       Ensure you are logged in to tenant '$TARGET_TENANT_ID'."
   exit 1
 }
 echo "  Microsoft Graph SP:      $GRAPH_SP_OBJECT_ID"
 
-MDE_SP_OBJECT_ID=$(az ad sp show --id "$MDE_APP_ID" --query id -o tsv 2>/dev/null) || {
+MDE_SP_OBJECT_ID=$(az rest --method GET \
+  --url "https://graph.microsoft.com/v1.0/servicePrincipals?\$filter=appId%20eq%20'$MDE_APP_ID'&\$select=id" \
+  "${AZ_REST_CONTEXT[@]}" \
+  --query "value[0].id" -o tsv 2>/dev/null) || {
   echo "ERROR: Could not find WindowsDefenderATP service principal."
   echo "       Ensure Microsoft Defender for Endpoint is provisioned in this tenant."
   exit 1
@@ -99,8 +151,9 @@ PERMISSIONS=(
 # --- Fetch existing assignments (all resources) ---
 echo "Checking existing permissions..."
 EXISTING=$(az rest --method GET \
-  --url "https://graph.microsoft.com/v1.0/servicePrincipals/$UAMI_OBJECT_ID/appRoleAssignments" \
-  --query "value[].{resourceId:resourceId, appRoleId:appRoleId}" -o tsv 2>/dev/null || echo "")
+  --url "https://graph.microsoft.com/v1.0/servicePrincipals/$MANAGED_IDENTITY_OBJECT_ID/appRoleAssignments" \
+  "${AZ_REST_CONTEXT[@]}" \
+  --query "value[].join('|', [resourceId, appRoleId])" -o tsv 2>/dev/null || echo "")
 
 ASSIGNED=0
 SKIPPED=0
@@ -127,17 +180,18 @@ for ENTRY in "${PERMISSIONS[@]}"; do
   fi
 
   # Skip if already assigned
-  if echo "$EXISTING" | grep -q "$ROLE_ID"; then
+  if echo "$EXISTING" | grep -Fqx "$RESOURCE_ID|$ROLE_ID"; then
     echo "  SKIP  $ROLE_NAME (already assigned)"
     ((++SKIPPED))
     continue
   fi
 
   # Assign the permission
-  BODY="{\"principalId\":\"$UAMI_OBJECT_ID\",\"resourceId\":\"$RESOURCE_ID\",\"appRoleId\":\"$ROLE_ID\"}"
+  BODY="{\"principalId\":\"$MANAGED_IDENTITY_OBJECT_ID\",\"resourceId\":\"$RESOURCE_ID\",\"appRoleId\":\"$ROLE_ID\"}"
 
   if az rest --method POST \
-    --url "https://graph.microsoft.com/v1.0/servicePrincipals/$UAMI_OBJECT_ID/appRoleAssignments" \
+    --url "https://graph.microsoft.com/v1.0/servicePrincipals/$MANAGED_IDENTITY_OBJECT_ID/appRoleAssignments" \
+    "${AZ_REST_CONTEXT[@]}" \
     --body "$BODY" \
     --headers "Content-Type=application/json" \
     -o none 2>/dev/null; then
@@ -165,9 +219,24 @@ if [[ $FAILED -gt 0 ]]; then
   exit 1
 fi
 
+VERIFY_ASSIGNMENTS=$(az rest --method GET \
+  --url "https://graph.microsoft.com/v1.0/servicePrincipals/$MANAGED_IDENTITY_OBJECT_ID/appRoleAssignments" \
+  "${AZ_REST_CONTEXT[@]}" \
+  --query "value[].join('|', [resourceId, appRoleId])" -o tsv 2>/dev/null || echo "")
+
+DEVICE_READ_ALL_ROLE_ID="7438b122-aefc-4978-80ed-43db9fcc7715"
+if ! echo "$VERIFY_ASSIGNMENTS" | grep -Fqx "$GRAPH_SP_OBJECT_ID|$DEVICE_READ_ALL_ROLE_ID"; then
+  echo "ERROR: Post-assignment verification did not find Microsoft Graph"
+  echo "       Device.Read.All on managed identity '$MI_DISPLAY_NAME'."
+  exit 1
+fi
+
+echo "  VERIFIED  Microsoft Graph Device.Read.All"
+echo ""
 echo "✅ Done. Token cache may take up to 1 hour to refresh."
 echo "   After that, Graph API and MDE API calls from the agent"
 echo "   will work without additional consent prompts."
+echo "   Start a new agent session before testing Graph access."
 echo ""
 echo "Next step: run assign-azure-roles.sh to assign Azure RBAC roles"
 echo "(Sentinel Reader/Responder, Key Vault Secrets User)."

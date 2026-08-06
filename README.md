@@ -283,7 +283,7 @@ cross-tenant deployment, and delete operations.
 
 Run [`setup/discover-setup-ids.sh`](setup/discover-setup-ids.sh) from **Azure Cloud Shell (Bash)** before assigning permissions. The script uses read-only Azure CLI commands to list the values required by the assignment scripts:
 
-- UAMI **Object ID** for `assign-permissions.sh`
+- UAMI **Object ID** (principal ID) for `assign-permissions.sh`
 - UAMI **Client ID** for `assign-azure-roles.sh`
 - Microsoft Sentinel workspace **Resource ID**
 - Key Vault **Resource ID**, when IP enrichment is enabled
@@ -366,14 +366,23 @@ are excluded by `.gitignore`.
 
 ### 1. API Permissions (Entra ID — Graph + MDE)
 
-The agent's **User-Assigned Managed Identity (UAMI)** needs **Application permissions** on Microsoft Graph and WindowsDefenderATP APIs.
+The agent's **User-Assigned Managed Identity (UAMI)** needs **Application
+permissions** on Microsoft Graph and WindowsDefenderATP APIs. Assign them to the
+identity actually used by the SRE Agent Azure CLI read tool. An identity selected
+for a connector is not automatically the runtime identity for every agent tool.
+
+These permissions are Entra tenant permissions, not Azure RBAC roles. Reader,
+Contributor, or Owner on the subscription does not authorize Microsoft Graph
+`/devices`, `/users`, or other directory endpoints. The subscription argument in
+the setup command selects the tenant from which Azure CLI requests the Graph
+token; it does not grant Graph access.
 
 #### Microsoft Graph
 
 | Permission | Skills | Notes |
 |---|---|---|
 | `User.Read.All` | user-investigation, identity-posture | |
-| `Device.Read.All` | computer-investigation | |
+| `Device.Read.All` | computer-investigation | Minimum Application permission for `GET /devices` |
 | `Directory.Read.All` | identity-posture | |
 | `RoleManagement.Read.Directory` | identity-posture | |
 | `UserAuthenticationMethod.Read.All` | user-investigation, identity-posture | |
@@ -406,10 +415,25 @@ Run [`setup/assign-permissions.sh`](setup/assign-permissions.sh) from **Azure Cl
 git clone https://github.com/stefanpems/sec-sre-ag.git
 cd sec-sre-ag/setup
 chmod +x assign-permissions.sh
-./assign-permissions.sh <UAMI_OBJECT_ID>
+./assign-permissions.sh <UAMI_OBJECT_ID> <SUBSCRIPTION_ID>
 ```
 
-The script takes a single argument — the **Object ID** of the UAMI (Azure Portal → Managed Identities → *your-identity* → Overview). It is idempotent (skips permissions already assigned). After running, wait up to 1 hour for the Entra ID token cache to refresh.
+Use the UAMI **Object ID / principal ID**, not its client ID. The script derives
+the target tenant from `SUBSCRIPTION_ID`, passes that subscription to every Graph
+request, and verifies that the supplied object is a managed identity in that
+tenant before making changes. It is idempotent and performs a final check that
+Microsoft Graph `Device.Read.All` is assigned.
+
+For a cross-tenant setup, first sign in to the target tenant with
+`az login --tenant <TARGET_TENANT_ID>`. After the script succeeds, wait up to one
+hour for token caches to refresh and start a new agent session before retesting.
+
+If the agent displays **Grant permissions** after a managed identity
+authorization failure, that is an On-Behalf-Of fallback using the interactive
+user. The displayed `.default` scopes request permissions already configured for
+that client; they do not assign `Device.Read.All` to the managed identity. Do not
+use that prompt as the production fix. Assign the Application permission to the
+UAMI and run Graph GET requests through the Azure CLI read tool.
 
 > **Note:** Skills that depend on Graph API (`user-investigation`, `computer-investigation`, `identity-posture`) include KQL-based fallback queries that work even when Graph API permissions are not yet effective.
 

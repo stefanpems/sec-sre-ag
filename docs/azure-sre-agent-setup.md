@@ -337,12 +337,65 @@ Test with:
 Use Microsoft Learn to find the official Azure SRE Agent documentation for managed connectors and return the page title and URL.
 ```
 
-## 9. Continue Repository Setup
+## 9. Assign Entra API Permissions
+
+Microsoft Graph directory access is independent of Azure subscription RBAC. An
+agent identity can be Owner on the subscription and still receive `403
+Forbidden` from `GET https://graph.microsoft.com/v1.0/devices`.
+
+Use the managed identity that the SRE Agent uses for Azure CLI read operations.
+For the repository's standard UAMI deployment, obtain its Object ID and the
+target subscription from the discovery script:
+
+```bash
+cd sec-sre-ag/setup
+./discover-setup-ids.sh <SUBSCRIPTION_ID>
+```
+
+Then assign the Application permissions:
+
+```bash
+./assign-permissions.sh <UAMI_OBJECT_ID> <SUBSCRIPTION_ID>
+```
+
+Run the assignment script with an account that has **Global Administrator** or
+**Privileged Role Administrator** in the target Entra tenant. For a subscription
+in a different tenant, authenticate there first:
+
+```bash
+az login --tenant <TARGET_TENANT_ID>
+```
+
+The script uses `SUBSCRIPTION_ID` for every Microsoft Graph request so Azure CLI
+obtains tokens from that subscription's home tenant. It validates all of the
+following before or after assignment:
+
+- The subscription is visible to the signed-in account.
+- The supplied Object ID exists in the target tenant.
+- The service principal type is `ManagedIdentity`.
+- Microsoft Graph `Device.Read.All` is assigned after the operation.
+
+`Device.Read.All` is the minimum Application permission used by
+`computer-investigation` for `GET /devices`. Azure roles such as Reader,
+Contributor, and Owner do not satisfy this requirement.
+
+If the SRE Agent displays a **Grant permissions** button after managed identity
+authorization fails, the platform is offering an On-Behalf-Of fallback with the
+interactive user's credentials. Scopes such as
+`https://graph.microsoft.com/.default` request existing delegated grants; they
+do not add `Device.Read.All` to the managed identity. Treat that prompt as a
+diagnostic signal, not the durable setup path.
+
+After assignment, allow up to one hour for token propagation, start a new agent
+session, and retry the Graph request through the Azure CLI read tool. Do not run
+read-only Graph calls through a write-command tool that can trigger OBO fallback.
+
+## 10. Continue Repository Setup
 
 Return to the root [README](../README.md#e-discover-the-required-ids) and
-continue with **E. Discover the required IDs**, runtime configuration, Entra ID
-API permissions, Azure RBAC, optional Key Vault integration, and Sentinel data
-connector prerequisites.
+continue with runtime configuration, Azure RBAC, optional Key Vault integration,
+and Sentinel data connector prerequisites. The discovery and Entra permission
+steps above correspond to sections **E** and **1** in the root README.
 
 Before production use, verify all of these conditions:
 
@@ -358,6 +411,9 @@ Before production use, verify all of these conditions:
 - PATs are repository-scoped, short-lived, stored only in protected connector
   configuration, and owned by a documented rotation process.
 - No credential has appeared in screenshots, chat, logs, or repository files.
+- The runtime UAMI has Microsoft Graph `Device.Read.All` as an Application
+   permission, and a fresh agent session can execute `GET /v1.0/devices` without
+   an OBO consent prompt.
 
 ## Verification Sources
 

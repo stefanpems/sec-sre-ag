@@ -131,7 +131,7 @@ if [[ ${#IDENTITY_ROWS[@]} -eq 1 && ${#SENTINEL_ROWS[@]} -eq 1 ]]; then
 
   echo "--- Ready-to-run commands ---"
   echo ""
-  echo "./assign-permissions.sh '$UAMI_OBJECT_ID'"
+  echo "./assign-permissions.sh '$UAMI_OBJECT_ID' '$SUBSCRIPTION_ID'"
   echo "./assign-azure-roles.sh '$UAMI_CLIENT_ID' '$WORKSPACE_RESOURCE_ID'"
   echo ""
   echo "To include Key Vault access, append the selected Key Vault Resource ID"
@@ -139,6 +139,6 @@ if [[ ${#IDENTITY_ROWS[@]} -eq 1 && ${#SENTINEL_ROWS[@]} -eq 1 ]]; then
 else
   echo "Select one UAMI and one Sentinel workspace from the values above, then run:"
   echo ""
-  echo "./assign-permissions.sh '<UAMI_OBJECT_ID>'"
+  echo "./assign-permissions.sh '<UAMI_OBJECT_ID>' '$SUBSCRIPTION_ID'"
   echo "./assign-azure-roles.sh '<UAMI_CLIENT_ID>' '<WORKSPACE_RESOURCE_ID>' ['<KEYVAULT_RESOURCE_ID>']"
 fi
