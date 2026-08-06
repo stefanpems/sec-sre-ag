@@ -22,7 +22,6 @@ required for customer-owned Azure SRE Agent deployments.
 |---|---|
 | [Skills](#skills) | Supported security operations use cases, capabilities, and example prompts |
 | [Setup](#setup) | Customer repository, agent creation, connectors, skill deployment, IDs, permissions, RBAC, and data prerequisites |
-| [Deploy or update skills](#d-deploy-or-update-skills) | Initial creation and idempotent updates with `deploy_skills.py` |
 | [Sandbox Architecture & Script Retrieval](#sandbox-architecture--script-retrieval) | Code Access, file resolution, script execution, and runtime configuration behavior |
 | [Repository Structure](#repository-structure) | Separation between runtime scripts, shared code, and Skill Builder content |
 | [Configuration](#configuration) | Generated `config.json` schema and value sources |
