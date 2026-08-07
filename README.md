@@ -284,10 +284,44 @@ roles. The detailed, customer-ready procedure is in
 
 ### A. Create a customer-owned repository
 
-Create a private repository owned by the customer by forking this repository,
-importing it through GitHub, or cloning it and pushing it to a new empty
-repository. Do not deploy directly from `stefanpems/sec-sre-ag`: the customer
-copy is the configuration and change-control boundary for its agent.
+Create a repository owned by the customer from
+<https://github.com/stefanpems/sec-sre-ag> using one of these options:
+
+1. **Fork on GitHub.** Select **Fork** in the source repository and choose the
+   customer's user account or organization as the owner. Because the source
+   repository is public, its owner does not need to enable any additional
+   setting or add the customer as a collaborator. The customer must have
+   permission to create repositories in the destination organization, and that
+   organization's GitHub or GitHub Enterprise policies must allow forks. A fork
+   remains linked to the upstream repository and, as part of a public fork
+   network, may not support the private visibility required by the customer.
+2. **Import with GitHub Importer.** Create a repository from
+   `https://github.com/stefanpems/sec-sre-ag.git`. This preserves the Git history
+   but creates an independent repository with customer-selected ownership,
+   name, and visibility. No source-repository credentials or configuration are
+   required because the source is public.
+3. **Clone and push.** Create an empty private repository in the customer
+   organization, then run:
+
+   ```bash
+   git clone https://github.com/stefanpems/sec-sre-ag.git
+   cd sec-sre-ag
+   git remote rename origin upstream
+   git remote add origin https://github.com/<customer-org>/<customer-repo>.git
+   git push -u origin main
+   ```
+
+   The retained `upstream` remote can be used to retrieve future source updates
+   with `git fetch upstream`. Authentication is required only for pushing to
+   the customer repository.
+
+Importing or cloning and pushing into a private repository is recommended when
+the customer requires a clear ownership, visibility, and governance boundary.
+Do not deploy directly from `stefanpems/sec-sre-ag`: the customer copy is the
+configuration and change-control boundary for its agent. If the source is made
+private in the future, its owner must grant access and enable private forking at
+the repository and organization or enterprise level; import and clone
+operations would also require source credentials.
 
 Grant access only to the administrators and operators who maintain the agent.
 Enable branch protection and pull-request review if the agent is allowed to
