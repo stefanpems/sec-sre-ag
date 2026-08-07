@@ -203,14 +203,16 @@ steps. Use time-bound elevation and the narrowest practical scope.
    grant the required repository access, and clone the repository to the local
    computer. Install Git and confirm that outbound HTTPS to `github.com` is
    allowed.
-- Python **3.9 or later** for `.builder/deploy/deploy_skills.py` and local script
-   validation. The deployer uses the standard library; PyYAML is optional. The
+- The latest stable Python release available for `.builder/deploy/deploy_skills.py`
+   and local script validation. The latest tests were performed with Python
+   **3.14.7**. The deployer uses the standard library; PyYAML is optional. The
    `incident-statistics` skill uses `incident-statistics/generate_charts.py`,
    which requires `matplotlib` and `numpy`, while IP enrichment with
    `shared/enrich_ips.py` requires `requests`. These packages are not required
    merely to deploy the skills.
-- Azure CLI, authenticated to every tenant that contains a target subscription:
-   use `az login` or `az login --tenant <TENANT_ID>` for cross-tenant setup.
+- Azure CLI on every workstation that runs the Python deployment tool,
+   authenticated to every tenant that contains a target subscription: use
+   `az login` or `az login --tenant <TENANT_ID>` for cross-tenant setup.
 - A modern browser that permits OAuth pop-ups from `sre.azure.com`. Node.js/npm
    is needed only when running an `npx`-based MCP server locally; the configured
    `kql-search-mcp` connector itself invokes `npx` in its connector runtime.
@@ -228,9 +230,12 @@ steps. Use time-bound elevation and the narrowest practical scope.
    agent, and permission to deploy in a currently supported SRE Agent region.
    Confirm current regions in the portal rather than relying on a static list.
 - Network access from the browser and administrative workstation to
-   `sre.azure.com`, `*.azuresre.ai`, Azure Resource Manager, Microsoft Entra ID,
-   Microsoft Graph, Azure Monitor/Log Analytics endpoints, GitHub, and the OAuth
-   endpoints used by Teams and Exchange Online.
+   `sre.azure.com`, `*.azuresre.ai`, Azure Resource Manager (including
+   `https://management.azure.com`), the Azure SRE Agent data plane, Microsoft
+   Entra ID, Microsoft Graph, Azure Monitor/Log Analytics endpoints, GitHub,
+   and the OAuth endpoints used by Teams and Exchange Online. In particular,
+   the workstation that runs the Python deployment tool must be able to reach
+   the Azure management and SRE Agent endpoints.
 - A running Microsoft Sentinel Log Analytics workspace containing the data that
    the selected skills need. Required Sentinel, Defender, Entra, Microsoft 365,
    and Identity Protection licenses must already be assigned. In particular,
@@ -246,14 +251,15 @@ required together.
 
 | Setup activity | Minimum access |
 |---|---|
-| Create the SRE Agent and supporting resources | **Contributor** on the target subscription to register `Microsoft.App` and create resources, plus **Role Based Access Control Administrator** or **User Access Administrator** on each scope where the wizard assigns roles. If the provider is already registered and the resource group already exists, Contributor can instead be scoped to that resource group. **Owner** on the subscription satisfies both requirements. |
+| Create the SRE Agent and supporting resources | **Contributor** plus **Role Based Access Control Administrator** on the target subscription or target resource group; alternatively, **Owner** on that scope. Contributor alone is not sufficient. Creating the resource group itself also requires, at least temporarily, permission to create resource groups at subscription scope. Registering `Microsoft.App` likewise requires the appropriate subscription-level permission. |
 | Select managed resource groups or change agent Azure permissions | **SRE Agent Administrator** on the agent plus **Owner** or **User Access Administrator** on each managed resource group. Start the agent with Reader-level access. |
 | Configure Builder, Code Access, connectors, and skills | **SRE Agent Administrator** on the agent resource. This is the documented role with full connector and configuration access. If a portal version exposes **SRE Agent Author**, use it only for operations that explicitly accept it; Administrator covers this repository's complete setup and validation flow. |
 | Deploy skills with `.builder/deploy/deploy_skills.py` | **Reader** on the agent resource for ARM discovery plus **SRE Agent Administrator** (or an explicitly supported Author role) for data-plane skill changes. |
 | Create Outlook or Teams managed connections | SRE Agent access above, a managed identity, and `Microsoft.Web/connections/write` plus `Microsoft.Authorization/roleAssignments/write` on the agent resource group. A least-privilege built-in combination is **Contributor** plus **Role Based Access Control Administrator** or **User Access Administrator**; **Owner** also works. |
 | Create the Log Analytics connector | **SRE Agent Administrator** on the agent and **Owner** or **User Access Administrator** on the target workspace/resource group so the wizard can assign Log Analytics roles to the managed identity. Resource Graph read access is needed for automatic workspace discovery. |
 | Assign Graph and Defender API Application permissions | **Privileged Role Administrator** or **Global Administrator** in the target Entra tenant. The role holder runs `setup/assign-permissions.sh`; Azure subscription RBAC alone is insufficient. |
-| Assign Sentinel and Key Vault RBAC with `setup/assign-azure-roles.sh` | **Role Based Access Control Administrator**, **User Access Administrator**, **Owner**, or a custom role containing `Microsoft.Authorization/roleAssignments/write` at the target workspace/Key Vault scope. |
+| Assign Sentinel RBAC with `setup/assign-azure-roles.sh` | **Role Based Access Control Administrator** or **Owner** on the target Log Analytics workspace or a parent scope. |
+| Assign optional Key Vault RBAC with `setup/assign-azure-roles.sh` | **Role Based Access Control Administrator** or **Owner** on the Key Vault or a parent scope when the third script argument is supplied. |
 | Configure the optional Sentinel Data Lake KQL job | Permission to create/manage the KQL job and assign **Log Analytics Contributor** to the separate Data Lake managed identity on the destination workspace. |
 
 ### External accounts and test assets
@@ -265,10 +271,13 @@ required together.
    Enterprise Cloud (`<tenant>.ghe.com`) requires organization/repository admin
    access to create and install a BYO GitHub App, plus a Key Vault and an agent
    identity with **Key Vault Secrets User** on that vault.
-- **Exchange Online:** a Microsoft 365 account with an active mailbox and
-   permission to send from the identity used during Outlook OAuth consent.
-- **Microsoft Teams:** a licensed account that can access and post to the target
-   team, channel, or chat; obtain a channel URL when using the legacy connector.
+- **Exchange Online and Microsoft Teams:** the managed connectors run in the
+   security context of the user who completes each OAuth connection. Emails and
+   Teams messages therefore show that user as the sender. Until agent-user
+   authentication is supported, use a dedicated service account with an active
+   mailbox and Teams license, permission to send email, and access to the target
+   teams, channels, and chats. Obtain a channel URL when using the legacy Teams
+   connector.
 - **Validation:** nonproduction recipients and representative test resources,
    including a mailbox, Teams destination, Sentinel incident, Entra user, and
    Defender-onboarded device. The tester must be allowed to read those resources
@@ -278,8 +287,8 @@ required together.
 
 ## Setup
 
-Complete the bootstrap stages below before assigning API permissions or Azure
-roles. The detailed, customer-ready procedure is in
+Complete stages A through C first so the API permissions and Azure roles begin
+propagating before the remaining configuration. The detailed, customer-ready procedure is in
 [`docs/azure-sre-agent-setup.md`](docs/azure-sre-agent-setup.md).
 
 ### A. Create a customer-owned repository
@@ -330,18 +339,63 @@ reports, or investigation output.
 
 ### B. Create the Azure SRE Agent
 
+Creating an Azure SRE Agent requires **Contributor** plus **Role Based Access
+Control Administrator** on the target subscription or resource group, or
+**Owner** on that scope. Contributor alone is not sufficient. If the resource
+group does not exist yet, the operator also needs, at least temporarily,
+permission to create it at subscription scope.
+
 If the customer does not already have an agent, create one at
 <https://sre.azure.com>. Register the `Microsoft.App` resource provider, choose
 a supported region, and start with **Reader** access to only the required
 resource groups. Use a user-assigned managed identity when the identity must be
 shared across connectors or retained independently of the agent.
 
-Creating the agent and its role assignments requires **Owner**, **User Access
-Administrator**, or an equivalent role with
-`Microsoft.Authorization/roleAssignments/write`. Connector setup additionally
-requires **SRE Agent Author** or **Administrator** on the agent.
+Connector setup additionally requires **SRE Agent Author** or **Administrator**
+on the agent.
 
-### C. Configure Code Access and connectors
+### C. Discover the required IDs
+
+Perform this step as soon as the agent has been created and its UAMI Object ID
+and Client ID are available. Run the two permission-assignment scripts promptly:
+Graph application permissions and Azure RBAC assignments can take up to one
+hour to propagate, so starting them now avoids delaying later validation.
+
+The accounts that run the assignment scripts require:
+
+- **Privileged Role Administrator** activated through PIM, or **Global
+   Administrator**, in the target tenant for `assign-permissions.sh`.
+- **Role Based Access Control Administrator** or **Owner** on the target Log
+   Analytics workspace or a parent scope for `assign-azure-roles.sh`.
+- **Role Based Access Control Administrator** or **Owner** on the Key Vault or a
+   parent scope when `KEYVAULT_RESOURCE_ID` is passed as the third argument.
+
+Run [`setup/discover-setup-ids.sh`](setup/discover-setup-ids.sh) from **Azure Cloud Shell (Bash)** before assigning permissions. The script uses read-only Azure CLI commands to list the values required by the assignment scripts:
+
+- UAMI **Object ID** (principal ID) for `assign-permissions.sh`
+- UAMI **Client ID** for `assign-azure-roles.sh`
+- Microsoft Sentinel workspace **Resource ID**
+- Key Vault **Resource ID**, when IP enrichment is enabled
+
+```bash
+git clone https://github.com/stefanpems/sec-sre-ag.git
+cd sec-sre-ag/setup
+chmod +x discover-setup-ids.sh
+./discover-setup-ids.sh [SUBSCRIPTION_ID]
+```
+
+The subscription argument is optional. When omitted, the script reads the active Azure CLI subscription. It does not call `az account set`; the selected subscription is passed explicitly to every resource query. If exactly one UAMI and one Sentinel workspace are found, the output includes ready-to-run commands for both assignment scripts. Otherwise, select the intended resources from the displayed list.
+
+Once the IDs are known, execute the generated commands immediately. Their full
+arguments and behavior are documented under [API Permissions](#1-api-permissions-entra-id--graph--mde)
+and [Azure RBAC Roles](#2-azure-rbac-roles):
+
+```bash
+./assign-permissions.sh <UAMI_OBJECT_ID> <SUBSCRIPTION_ID>
+./assign-azure-roles.sh <UAMI_CLIENT_ID> <WORKSPACE_RESOURCE_ID> [KEYVAULT_RESOURCE_ID]
+```
+
+### D. Configure Code Access and connectors
 
 In the agent portal, connect the customer repository under **Builder > Code
 Access**. For `github.com`, prefer GitHub OAuth for interactive Code Access; it
@@ -361,6 +415,12 @@ connectors below under **Builder > Connectors**:
 | **ms-learn-mcp** | Streamable HTTP; `https://learn.microsoft.com/api/mcp`; no authentication | Select all 3 tools |
 | **GitHub MCP** (only when repository writes are required) | GitHub MCP partner connector; separate fine-grained PAT | Only branch, file-content, commit, and pull-request tools required by the approved workflow |
 
+The Outlook and Teams connections use the security context of the user who
+completes OAuth consent, not the agent UAMI. Every email or Teams message sent
+through these connectors therefore identifies that user as the sender. Until
+the platform supports agent-user authentication, create and use a dedicated
+service account with its own mailbox and Teams license for these connections.
+
 The published `kql-search-mcp` package requires `GITHUB_TOKEN`. Use a separate,
 fine-grained, read-only PAT scoped only to the repositories searched by the MCP
 server. A single PAT can technically serve PAT-authenticated Code Access and
@@ -373,13 +433,18 @@ Follow the detailed guide for exact fields, PAT permissions, governance
 settings, validation prompts, and the required response when a credential is
 exposed.
 
-### D. Deploy or update skills
+### E. Deploy or update skills
 
 Use [`.builder/deploy/deploy_skills.py`](.builder/deploy/deploy_skills.py) both
 for the initial creation of the agent's custom skills and for every subsequent
 update. The `deploy` command is idempotent: it sends a `PUT` for each selected
 skill, creating it when absent and replacing the existing skill definition and
 supporting files when present.
+
+Run these commands on a workstation with both the latest stable Python release
+and Azure CLI installed. Sign in to the target tenant with Azure CLI first, and
+ensure outbound traffic can reach Azure Resource Manager, including
+`https://management.azure.com`, and the Azure SRE Agent data-plane endpoint.
 
 ```bash
 cd .builder/deploy
@@ -399,24 +464,6 @@ runtime scripts remain in the top-level skill folders and are obtained through
 Code Access; they must not be copied into `.builder`. See the
 [deployment tool guide](.builder/deploy/README.md) for target configuration,
 cross-tenant deployment, and delete operations.
-
-### E. Discover the required IDs
-
-Run [`setup/discover-setup-ids.sh`](setup/discover-setup-ids.sh) from **Azure Cloud Shell (Bash)** before assigning permissions. The script uses read-only Azure CLI commands to list the values required by the assignment scripts:
-
-- UAMI **Object ID** (principal ID) for `assign-permissions.sh`
-- UAMI **Client ID** for `assign-azure-roles.sh`
-- Microsoft Sentinel workspace **Resource ID**
-- Key Vault **Resource ID**, when IP enrichment is enabled
-
-```bash
-git clone https://github.com/stefanpems/sec-sre-ag.git
-cd sec-sre-ag/setup
-chmod +x discover-setup-ids.sh
-./discover-setup-ids.sh [SUBSCRIPTION_ID]
-```
-
-The subscription argument is optional. When omitted, the script reads the active Azure CLI subscription. It does not call `az account set`; the selected subscription is passed explicitly to every resource query. If exactly one UAMI and one Sentinel workspace are found, the output includes ready-to-run commands for both assignment scripts. Otherwise, select the intended resources from the displayed list.
 
 ### 0. Runtime `config.json` (created on first skill execution)
 
@@ -539,7 +586,7 @@ All permissions above are **Application** type (not Delegated). All are read-onl
 
 #### How to assign
 
-Run [`setup/assign-permissions.sh`](setup/assign-permissions.sh) from **Azure Cloud Shell (Bash)** with an account that has **Global Administrator** or **Privileged Role Administrator** role:
+Run [`setup/assign-permissions.sh`](setup/assign-permissions.sh) from **Azure Cloud Shell (Bash)** with an account that has **Privileged Role Administrator** activated through PIM or **Global Administrator** in the target tenant:
 
 ```bash
 ./assign-permissions.sh <UAMI_OBJECT_ID> <SUBSCRIPTION_ID>
@@ -578,7 +625,7 @@ The UAMI also needs Azure RBAC roles for Sentinel workspace access and (optional
 
 #### How to assign
 
-Run [`setup/assign-azure-roles.sh`](setup/assign-azure-roles.sh) from **Azure Cloud Shell (Bash)** with an account that has **Owner** or **User Access Administrator** on the target scope:
+Run [`setup/assign-azure-roles.sh`](setup/assign-azure-roles.sh) from **Azure Cloud Shell (Bash)** with an account that has **Role Based Access Control Administrator** or **Owner** on the target Log Analytics workspace or a parent scope. If the optional Key Vault argument is supplied, the account needs one of those roles on the Key Vault or a parent scope as well:
 
 ```bash
 ./assign-azure-roles.sh <UAMI_CLIENT_ID> <WORKSPACE_RESOURCE_ID> [KEYVAULT_RESOURCE_ID]

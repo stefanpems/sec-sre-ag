@@ -155,38 +155,27 @@ The agent runtime does NOT receive the authenticated user's identity claims (UPN
 | `az ad signed-in-user show` | Same problem — the signed-in user is the managed identity service principal, not the human operator |
 | Reading claims from the session/token | The agent has no access to the user's authentication token or session headers |
 
-**Resolution — UPN Discovery Cascade:**
+**Resolution — ask the user for their UPN:**
 
-When a task requires the authenticated user's UPN, the agent MUST resolve it again in every new conversation session. A UPN explicitly provided or already discovered in the current session may be reused only within that session. The agent MUST NOT treat a UPN from persistent memory as the current user's identity because agent memory is shared across all sessions and users of that agent.
+When a task requires the authenticated user's UPN, the agent MUST ask the user
+directly unless they already provided it earlier in the current conversation:
 
-1. **Check the current session only** — If the user explicitly provided their UPN, or it was already discovered, earlier in the current conversation, use it. Persistent agent memory may contain a roster of known operators, but it cannot establish which operator is participating in the current session.
+> "This task requires your identity. What is your UPN (e.g., user@contoso.com)?"
 
-2. **If the Office 365 `GetEmails` tool is available** — Read exactly 1 email from the Sent Items folder with minimal token cost:
-  ```
-  office365_GetEmailsV3(
-    folderPath: "SentItems",
-    top: 1,
-    fetchOnlyUnread: false,
-    includeAttachments: false
-  )
-  ```
-  The `from` field in the response contains the user's SMTP primary address, which coincides with the UPN in most Microsoft 365 tenants. This works because the Office 365 connector authenticates via OAuth as the **user**, not the managed identity.
-
-  **Important:** This returns the SMTP primary address, which coincides with the UPN in most tenants but not necessarily all. For definitive UPN confirmation, follow up with:
-  ```
-  RunAzCliReadCommands: az ad user show --id <smtp-address> --query userPrincipalName -o tsv
-  ```
-
-3. **If the Office 365 `GetEmails` tool is NOT available** — Ask the user explicitly:
-  > "This task requires your identity. What is your UPN (e.g., user@contoso.com)?"
-
-4. **After successful discovery** — Use the UPN for the remainder of the current session. It may be saved to `memories/synthesizedKnowledge/team.md` as information about a known operator, but it MUST be rediscovered or explicitly confirmed in the next session before being used as the identity behind "me" or "my".
+The Outlook connector cannot be used to infer the current chat user's identity.
+It authenticates as the account that performed connector setup, which may be a
+dedicated service account and may differ from the person using the agent. A UPN
+provided in the current conversation may be reused only for that conversation.
+The agent MUST NOT save or retrieve a UPN from persistent memory to resolve
+references such as "me" or "my", because memory is shared across sessions and
+users of the agent.
 
 **NEVER:**
 - Guess the UPN from the tenant name or other indirect signals
 - Assume that a UPN stored in persistent agent memory belongs to the user in the current session
+- Infer the UPN by reading Outlook mail or other connector-owned content
 - Use `/me` endpoints with the managed identity and present the result as the user's identity
-- Skip the discovery and silently use a placeholder
+- Skip asking the user and silently use a placeholder
 
 **Affects:** Any task where the user refers to themselves ("send to me", "my account", "my sign-ins", "investigate me") and skills that need to filter data by the operator's identity.
 

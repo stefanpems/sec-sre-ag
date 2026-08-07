@@ -6,10 +6,14 @@ file and its YAML front-matter `description` becomes the skill description; ever
 other file in the folder is uploaded as a supporting (additional) file.
 
 ## Requirements
-- Python 3.9+
+- The latest stable Python release available. The latest tests were performed
+  with Python 3.14.7.
 - Azure CLI, signed in with an account that can reach the target subscription:
   `az login` (or `az login --tenant <TENANT>` if that subscription lives in a
   different Entra tenant than your default one).
+- Outbound network access to Azure Resource Manager
+  (`https://management.azure.com`) and the target Azure SRE Agent data-plane
+  endpoint.
 - Role **SRE Agent Administrator** (or Author) on the target agent resource.
 - `PyYAML` is optional (improves front-matter parsing); a built-in fallback is used otherwise.
 
