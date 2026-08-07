@@ -411,7 +411,7 @@ connectors below under **Builder > Connectors**:
 | **Outlook Tools (Office 365 Outlook)** | OAuth sign-in plus managed identity | `Send an email` |
 | **Microsoft Teams** | OAuth sign-in plus managed identity | `Post Message in a Chat or Channel`; `Post Message to myself`; `Get message details input metadata`; `Get message details response schema`; `Get response schema` |
 | **Log Analytics Workspace** | Customer subscription, resource group, Sentinel workspace, and managed identity | Connector-provided query operation |
-| **kql-search-mcp** | Stdio; command `npx`; arguments `-y`, `kql-search-mcp`; `GITHUB_TOKEN`; optional `FAVORITE_REPOS` | The 10 tools listed in the detailed guide |
+| **kql-search-mcp** | Stdio; command `npx`; arguments `-y`, `kql-search-mcp`; `GITHUB_TOKEN`; optional `FAVORITE_REPOS` | The 10 tools listed under [Add `kql-search-mcp`](docs/azure-sre-agent-setup.md#7-add-kql-search-mcp) in the detailed setup guide |
 | **ms-learn-mcp** | Streamable HTTP; `https://learn.microsoft.com/api/mcp`; no authentication | Select all 3 tools |
 | **GitHub MCP** (only when repository writes are required) | GitHub MCP partner connector; separate fine-grained PAT | Only branch, file-content, commit, and pull-request tools required by the approved workflow |
 
@@ -429,9 +429,9 @@ both, but this is not recommended. OAuth for Code Access plus separate PATs for
 KQL search and write-capable GitHub MCP provides smaller blast radius and
 independent rotation.
 
-Follow the detailed guide for exact fields, PAT permissions, governance
-settings, validation prompts, and the required response when a credential is
-exposed.
+Follow the [detailed Azure SRE Agent setup guide](docs/azure-sre-agent-setup.md)
+for exact fields, PAT permissions, governance settings, validation prompts, and
+the required response when a credential is exposed.
 
 ### E. Deploy or update skills
 
