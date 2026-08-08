@@ -205,14 +205,11 @@ steps. Use time-bound elevation and the narrowest practical scope.
    allowed.
 - The latest stable Python release available for `.builder/deploy/deploy_skills.py`
    and local script validation. The latest tests were performed with Python
-   **3.14.7**. The deployer uses the standard library; PyYAML is optional. The
-   `incident-statistics` skill uses `incident-statistics/generate_charts.py`,
-   which requires `matplotlib` and `numpy`, while IP enrichment with
-   `shared/enrich_ips.py` requires `requests`. These packages are not required
-   merely to deploy the skills.
-- Azure CLI on every workstation that runs the Python deployment tool,
-   authenticated to every tenant that contains a target subscription: use
-   `az login` or `az login --tenant <TENANT_ID>` for cross-tenant setup.
+   **3.14.7**. The deployer uses the standard library; PyYAML is optional.
+- Azure CLI installed on the workstation used to run the Python deployment
+   tool and authenticated to the Entra tenant that owns the target
+   subscription. Use `az login`, or `az login --tenant <TARGET_TENANT_ID>` when
+   the target tenant differs from the operator's default tenant.
 - A modern browser that permits OAuth pop-ups from `sre.azure.com`. Node.js/npm
    is needed only when running an `npx`-based MCP server locally; the configured
    `kql-search-mcp` connector itself invokes `npx` in its connector runtime.
@@ -228,7 +225,9 @@ steps. Use time-bound elevation and the narrowest practical scope.
    and set the monthly AAU allocation before production use.
 - The `Microsoft.App` resource provider registered, a resource group for the
    agent, and permission to deploy in a currently supported SRE Agent region.
-   Confirm current regions in the portal rather than relying on a static list.
+   See [Minimum administrative access](#minimum-administrative-access) below
+   for the required roles. Confirm current regions in the portal rather than
+   relying on a static list.
 - Network access from the browser and administrative workstation to
    `sre.azure.com`, `*.azuresre.ai`, Azure Resource Manager (including
    `https://management.azure.com`), the Azure SRE Agent data plane, Microsoft
@@ -240,13 +239,26 @@ steps. Use time-bound elevation and the narrowest practical scope.
    the selected skills need. Required Sentinel, Defender, Entra, Microsoft 365,
    and Identity Protection licenses must already be assigned. In particular,
    Identity Protection risk data requires Entra ID P2, endpoint investigations
-   require Defender for Endpoint, and notification tests require licensed Teams
-   and Exchange Online accounts.
+   require Defender for Endpoint, and using the Teams and Outlook notification
+   connectors requires appropriately licensed Teams and Exchange Online
+   accounts.
 
 ### Minimum administrative access
 
-The following table separates Azure RBAC, SRE Agent roles, Entra roles, and
-external-service permissions. These controls are independent and are sometimes
+To complete the setup procedure end to end, ensure that the following minimum
+privileges are available before starting:
+
+1. **Contributor** plus **Role Based Access Control Administrator** on the
+   target subscription or target resource group.
+2. **Privileged Role Administrator** or **Global Administrator** in the target
+   Entra tenant. This Entra role is needed only to run
+   `setup/assign-permissions.sh`, which assigns Microsoft Graph and Defender API
+   Application permissions to the new SRE Agent UAMI.
+
+The detailed table below is intended for a setup split into separate phases and
+delegated to different operators with the minimum authorization required for
+each activity. It separates Azure RBAC, SRE Agent roles, Entra roles, and
+external-service permissions; these controls are independent and are sometimes
 required together.
 
 | Setup activity | Minimum access |
@@ -288,8 +300,8 @@ required together.
 ## Setup
 
 Complete stages A through C first so the API permissions and Azure roles begin
-propagating before the remaining configuration. The detailed, customer-ready procedure is in
-[`docs/azure-sre-agent-setup.md`](docs/azure-sre-agent-setup.md).
+propagating before the remaining configuration. This section is the
+authoritative end-to-end setup procedure for this repository.
 
 ### A. Create a customer-owned repository
 
@@ -334,8 +346,11 @@ operations would also require source credentials.
 
 Grant access only to the administrators and operators who maintain the agent.
 Enable branch protection and pull-request review if the agent is allowed to
-write code. Never commit PATs, connector credentials, `config.json`, generated
-reports, or investigation output.
+write code. Enable secret scanning and push protection where available. Never
+commit PATs, connector credentials, `config.json`, generated reports, or
+investigation output. Treat any token exposed in a screenshot, chat, log, or
+commit as compromised: revoke it immediately, replace it, and update the
+connector that used it.
 
 ### B. Create the Azure SRE Agent
 
@@ -346,15 +361,26 @@ group does not exist yet, the operator also needs, at least temporarily,
 permission to create it at subscription scope.
 
 If the customer does not already have an agent, create one at
-<https://sre.azure.com>. Register the `Microsoft.App` resource provider, choose
-a supported region, and start with **Reader** access to only the required
-resource groups. Use a user-assigned managed identity when the identity must be
-shared across connectors or retained independently of the agent.
+<https://sre.azure.com>:
+
+1. Select **Create agent**, then choose the customer subscription and resource
+   group.
+2. Enter a customer-specific name, choose a currently supported region, and
+   assign only the resource groups required by the security operations use
+   cases. Start with **Reader** access.
+3. Complete deployment and wait until the agent state is **Running**.
+4. Record the agent's managed identity. Use a user-assigned managed identity
+   when it must be shared across connectors, managed independently, or retained
+   outside the agent lifecycle.
+
+Agent provisioning also creates supporting Application Insights and Log
+Analytics resources. That telemetry workspace is not automatically the
+customer's Microsoft Sentinel workspace.
 
 Connector setup additionally requires **SRE Agent Author** or **Administrator**
 on the agent.
 
-### C. Discover the required IDs
+### C. Discover the required IDs and assign permissions to the agent's UAMI
 
 Perform this step as soon as the agent has been created and its UAMI Object ID
 and Client ID are available. Run the two permission-assignment scripts promptly:
@@ -378,11 +404,15 @@ Run [`setup/discover-setup-ids.sh`](setup/discover-setup-ids.sh) from **Azure Cl
 - Key Vault **Resource ID**, when IP enrichment is enabled
 
 ```bash
-git clone https://github.com/stefanpems/sec-sre-ag.git
-cd sec-sre-ag/setup
-chmod +x discover-setup-ids.sh
+git clone https://github.com/<customer-org>/<customer-repo>.git
+cd <customer-repo>/setup
+chmod +x *.sh
 ./discover-setup-ids.sh [SUBSCRIPTION_ID]
 ```
+
+If the setup files in the customer repository have not been modified, you can
+instead clone the source repository with
+`git clone https://github.com/stefanpems/sec-sre-ag.git`.
 
 The subscription argument is optional. When omitted, the script reads the active Azure CLI subscription. It does not call `az account set`; the selected subscription is passed explicitly to every resource query. If exactly one UAMI and one Sentinel workspace are found, the output includes ready-to-run commands for both assignment scripts. Otherwise, select the intended resources from the displayed list.
 
@@ -394,6 +424,20 @@ and [Azure RBAC Roles](#2-azure-rbac-roles):
 ./assign-permissions.sh <UAMI_OBJECT_ID> <SUBSCRIPTION_ID>
 ./assign-azure-roles.sh <UAMI_CLIENT_ID> <WORKSPACE_RESOURCE_ID> [KEYVAULT_RESOURCE_ID]
 ```
+
+`WORKSPACE_RESOURCE_ID` is not the Log Analytics Workspace ID/customer ID GUID.
+It is the workspace's complete Azure Resource Manager resource ID, with this
+structure:
+
+```text
+/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP_NAME>/providers/Microsoft.OperationalInsights/workspaces/<WORKSPACE_NAME>
+```
+
+The scripts verify that the subscription is visible, the supplied identity is
+a managed identity in the target tenant, and the required assignments exist
+after execution. If the portal later displays **Grant permissions**, treat it
+as an interactive On-Behalf-Of fallback, not as a replacement for assigning
+Application permissions to the UAMI.
 
 ### D. Configure Code Access and connectors
 
@@ -411,27 +455,109 @@ connectors below under **Builder > Connectors**:
 | **Outlook Tools (Office 365 Outlook)** | OAuth sign-in plus managed identity | `Send an email` |
 | **Microsoft Teams** | OAuth sign-in plus managed identity | `Post Message in a Chat or Channel`; `Post Message to myself`; `Get message details input metadata`; `Get message details response schema`; `Get response schema` |
 | **Log Analytics Workspace** | Customer subscription, resource group, Sentinel workspace, and managed identity | Connector-provided query operation |
-| **kql-search-mcp** | Stdio; command `npx`; arguments `-y`, `kql-search-mcp`; `GITHUB_TOKEN`; optional `FAVORITE_REPOS` | The 10 tools listed under [Add `kql-search-mcp`](docs/azure-sre-agent-setup.md#7-add-kql-search-mcp) in the detailed setup guide |
+| **kql-search-mcp** | Stdio; command `npx`; arguments `-y`, `kql-search-mcp`; `GITHUB_TOKEN`; optional `FAVORITE_REPOS` | The 10 tools listed under [`kql-search-mcp`](#kql-search-mcp) below |
 | **ms-learn-mcp** | Streamable HTTP; `https://learn.microsoft.com/api/mcp`; no authentication | Select all 3 tools |
 | **GitHub MCP** (only when repository writes are required) | GitHub MCP partner connector; separate fine-grained PAT | Only branch, file-content, commit, and pull-request tools required by the approved workflow |
 
-The Outlook and Teams connections use the security context of the user who
-completes OAuth consent, not the agent UAMI. Every email or Teams message sent
-through these connectors therefore identifies that user as the sender. Until
-the platform supports agent-user authentication, create and use a dedicated
-service account with its own mailbox and Teams license for these connections.
+#### Code Access and GitHub MCP
 
-The published `kql-search-mcp` package requires `GITHUB_TOKEN`. Use a separate,
-fine-grained, read-only PAT scoped only to the repositories searched by the MCP
-server. A single PAT can technically serve PAT-authenticated Code Access and
-`kql-search-mcp` on `github.com` when its repository scope and permissions cover
-both, but this is not recommended. OAuth for Code Access plus separate PATs for
-KQL search and write-capable GitHub MCP provides smaller blast radius and
-independent rotation.
+1. Open **Builder > Code Access**, add GitHub Code Access, and authenticate.
+2. For `github.com`, prefer OAuth and select only the customer repository.
+3. Wait until the repository status is **Ready**, then run the Code Access test
+   under [Connector smoke tests](#connector-smoke-tests).
 
-Follow the [detailed Azure SRE Agent setup guide](docs/azure-sre-agent-setup.md)
-for exact fields, PAT permissions, governance settings, validation prompts, and
-the required response when a credential is exposed.
+Code Access supplies repository search, reads, branch selection, and context;
+it does not provide file edits or commits. GitHub Enterprise Cloud repositories
+on `<tenant>.ghe.com` require a customer-owned GitHub App rather than the
+`github.com` OAuth flow.
+
+When repository writes are required, add the GitHub MCP partner connector with
+a separate fine-grained PAT. Enable only the current catalog equivalents for
+branch creation, file creation or update, commits, and pull requests. Set write
+tools to **Ask**, protect `main`, and require the agent to work through a branch
+and reviewed pull request rather than writing directly to production.
+
+#### GitHub credentials
+
+Use independent credentials with the smallest practical scope:
+
+| Consumer | Recommended authentication | Minimum repository permission |
+|---|---|---|
+| Code Access | GitHub OAuth | Access only to the customer repository |
+| `kql-search-mcp` | Separate fine-grained PAT | Metadata: Read; Contents: Read on searched private repositories |
+| GitHub MCP | Separate fine-grained PAT | Metadata: Read; Contents: Read and write; Pull requests: Read and write only when PR tools are enabled |
+
+Use short expirations, record an owner, define rotation, and complete any
+required organization approval. Never place a real PAT in the repository;
+enter it only in the connector's protected environment-variable field. Sharing
+one PAT across these integrations couples rotation and can expose write access
+to a read-only service, so it is not the recommended design.
+
+#### Outlook and Microsoft Teams
+
+For Outlook, add **Outlook Tools (Office 365 Outlook)**, sign in with the
+dedicated service account, select the agent UAMI, enable **Send an email**, and
+set the write operation to **Ask** for interactive use.
+
+For Teams, sign in with the dedicated service account, select the UAMI, enable
+the five operations in the connector table, set posting operations to **Ask**,
+and leave schema and metadata reads as **Allow**. Lock a destination parameter
+only when the agent must never send outside that destination; otherwise leave
+it agent-defined. Preview operation labels can change, so select the current
+catalog equivalents when necessary.
+
+These connections use the security context of the user who completes OAuth
+consent, not the UAMI. Every email or Teams message therefore identifies that
+user as the sender. Until agent-user authentication is supported, use a
+dedicated service account with its own mailbox and Teams license. Autonomous
+mode may execute tools configured as **Ask** without an interactive approval;
+review autonomous workflows separately.
+
+#### Log Analytics connector
+
+1. Add **Log Analytics Workspace** under **Builder > Connectors > Telemetry**.
+2. Enter a descriptive name, then select the customer subscription, Sentinel
+   workspace, and agent UAMI.
+3. Add the connector and confirm it queries the Sentinel workspace rather than
+   the separate workspace created for agent telemetry.
+
+If automatic discovery fails, enter the workspace ARM resource ID, workspace
+name, and Workspace ID/customer ID manually. A query-time 403 usually means the
+selected identity lacks **Log Analytics Reader** or **Monitoring Reader** at the
+required scope; the later Azure RBAC step adds the Sentinel-specific roles.
+
+#### `kql-search-mcp`
+
+1. Add an **MCP** connector, choose **Stdio**, set **MCP Server** to
+   `kql-search-mcp`, and set **Command** to `npx`.
+2. Add `-y` and `kql-search-mcp` as two separate arguments.
+3. Add the read-only PAT as `GITHUB_TOKEN`. Optionally set `FAVORITE_REPOS` to a
+   comma-separated list such as `<customer-org>/<customer-repo>,Azure/Azure-Sentinel,microsoft/Microsoft-365-Defender-Hunting-Queries`.
+4. Select the agent UAMI and enable only these tools:
+
+   - `get_table_schema`
+   - `search_github_examples_fallback`
+   - `search_kql_repositories`
+   - `validate_kql_query`
+   - `find_column`
+   - `generate_kql_query`
+   - `search_tables`
+   - `get_query_documentation`
+   - `list_table_categories`
+   - `get_tables_by_category`
+
+The repository was verified with package version `1.0.5`. That version requires
+`GITHUB_TOKEN` and has a known `search_favorite_repos` parsing issue; use
+`search_github_examples_fallback` instead. Do not select every package tool by
+default: Azure SRE Agent permits at most 80 tools across native and MCP
+connectors, and a smaller set improves tool-selection accuracy.
+
+#### `ms-learn-mcp`
+
+Add an **MCP** connector, choose **Streamable HTTP**, set **MCP Server** to
+`ms-learn-mcp`, use `https://learn.microsoft.com/api/mcp`, select **No
+authentication**, enable all three returned tools, and verify the connector is
+**Connected**.
 
 ### E. Deploy or update skills
 
@@ -464,6 +590,20 @@ runtime scripts remain in the top-level skill folders and are obtained through
 Code Access; they must not be copied into `.builder`. See the
 [deployment tool guide](.builder/deploy/README.md) for target configuration,
 cross-tenant deployment, and delete operations.
+
+### Setup verification sources
+
+Preview portal labels may change; use the current equivalent when a label
+differs. The setup procedure was checked against:
+
+- [Create and set up Azure SRE Agent](https://learn.microsoft.com/azure/sre-agent/create-agent)
+- [Connect source code](https://learn.microsoft.com/azure/sre-agent/connect-source-code)
+- [Set up an Outlook connector](https://learn.microsoft.com/azure/sre-agent/outlook-connector)
+- [Set up the Teams connector](https://learn.microsoft.com/azure/sre-agent/set-up-teams-connector)
+- [Set up a Log Analytics connector](https://learn.microsoft.com/azure/sre-agent/setup-log-analytics-connector)
+- [MCP connectors and tools](https://learn.microsoft.com/azure/sre-agent/mcp-connectors)
+- [Set up a GitHub connector](https://learn.microsoft.com/azure/sre-agent/github-connector)
+- [`kql-search-mcp` package](https://www.npmjs.com/package/kql-search-mcp), verified at version `1.0.5`
 
 ### 0. Runtime `config.json` (created on first skill execution)
 
@@ -536,10 +676,14 @@ Before completing setup sections 1 and 2, clone the repository and make all
 setup scripts executable in **Azure Cloud Shell (Bash)**:
 
 ```bash
-git clone https://github.com/stefanpems/sec-sre-ag.git
-cd sec-sre-ag/setup
+git clone https://github.com/<customer-org>/<customer-repo>.git
+cd <customer-repo>/setup
 chmod +x *.sh
 ```
+
+If the setup files in the customer repository have not been modified, you can
+instead clone the source repository with
+`git clone https://github.com/stefanpems/sec-sre-ag.git`.
 
 ### 1. API Permissions (Entra ID — Graph + MDE)
 
