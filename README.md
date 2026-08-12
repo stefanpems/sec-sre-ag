@@ -591,6 +591,26 @@ Code Access; they must not be copied into `.builder`. See the
 [deployment tool guide](.builder/deploy/README.md) for target configuration,
 cross-tenant deployment, and delete operations.
 
+### F. Optionally deploy the Microsoft Sentinel investigation playbooks
+
+After creating the corresponding incident-investigation and user-investigation
+HTTP triggers in Azure SRE Agent, optionally deploy either or both parameterized
+Logic App ARM templates under [`setup/logic-app`](setup/logic-app/README.md).
+Do not deploy a playbook before its target HTTP trigger exists and its URL has
+been recorded for the template parameters.
+
+The incident template creates a Sentinel incident-creation playbook. The user
+template creates an Account Entity playbook that sends the selected user's UPN
+to Azure SRE Agent. Each template creates its own Microsoft Sentinel connection
+and system-assigned workflow identity, and can assign the built-in `SRE Agent
+Standard User` role to that identity on the target agent resource group.
+
+Use a separate target-specific parameter file for each deployed playbook and
+grant Microsoft Sentinel permission to run playbooks in the Logic App resource
+group. The template guide documents the required values, validation and
+deployment commands, optional Sentinel automation role assignment, and
+post-deployment checks.
+
 ### Setup verification sources
 
 Preview portal labels may change; use the current equivalent when a label
