@@ -14,11 +14,8 @@ Each template creates:
 - A Microsoft Sentinel managed API connection that uses managed identity
   authentication.
 - A Logic App Consumption workflow with a system-assigned managed identity.
-- Optionally, an `SRE Agent Standard User` role assignment for the workflow
-  identity on the resource group that contains the Azure SRE Agent.
-- Optionally, a `Microsoft Sentinel Automation Contributor` role assignment on
-  the playbook resource group for a tenant-specific Sentinel automation
-  principal.
+- An `SRE Agent Standard User` role assignment for the workflow identity on the
+  deployment resource group.
 
 ## Prerequisites
 
@@ -27,28 +24,29 @@ Each template creates:
 - Microsoft Sentinel is enabled on a Log Analytics workspace.
 - The target Azure SRE Agent and the HTTP trigger corresponding to each selected
   template already exist.
+- Each template is deployed to the resource group that contains the target
+  Azure SRE Agent. The template derives its region and role-assignment scope
+  from that resource group.
 - The deploying identity can create Logic Apps and API connections in the
   target resource group.
-- When `assignSreAgentRole` is `true`, the deploying identity can create role
-  assignments on the Azure SRE Agent resource group.
+- The deploying identity can create role assignments on the Azure SRE Agent
+  resource group.
 - Microsoft Sentinel has permission to run playbooks in the target resource
   group. This can be configured from the Sentinel workspace **Settings >
-  Settings > Playbook permissions** page. Alternatively, supply the
-  tenant-specific automation principal object ID and enable
-  `assignSentinelAutomationRole`.
+  Settings > Playbook permissions** page.
 
 ## Parameters
 
-The required target-specific values are:
+Each template exposes exactly one parameter:
 
 | Parameter | Description |
 |---|---|
 | `sreAgentTriggerUrl` | Full HTTP trigger URL exposed by the target Azure SRE Agent. |
-| `sreAgentResourceGroupResourceId` | Resource ID of the resource group that contains the target Azure SRE Agent. |
 
-`sreAgentAudience` defaults to the audience used by Azure SRE Agent. Role
-definition GUIDs default to the corresponding built-in Azure roles and should
-normally remain unchanged.
+The workflow name, deployment region, Sentinel connection name, Azure SRE Agent
+audience, and built-in `SRE Agent Standard User` role definition are fixed
+inside each template. They are intentionally not shown in the Azure custom
+deployment form.
 
 Both workflows preserve their source payload contract and send the extracted
 value in the `user_email` JSON property expected by the corresponding SRE Agent
@@ -58,7 +56,9 @@ sends the account UPN.
 ## Deploy
 
 Choose a template and create a target-specific parameter file from its matching
-`.parameters.example.json` file. The incident playbook commands are:
+`.parameters.example.json` file. The file contains only the HTTP trigger URL.
+Deploy it to the resource group that contains the Azure SRE Agent. The incident
+playbook commands are:
 
 ```bash
 az deployment group validate \
@@ -77,10 +77,10 @@ az deployment group create \
 For the user playbook, use
 `investigate-user-on-azure-sre-agent.json` and its matching parameter file in
 the same commands. Each template creates a separate Microsoft Sentinel managed
-API connection by default, derived from its workflow name.
+API connection with a fixed name corresponding to its workflow.
 
-The Logic App and managed API connection must use the same region. The Sentinel
-workspace may be in a different region.
+The Logic App and managed API connection use the deployment resource group's
+region. The Sentinel workspace may be in a different region.
 
 ## Post-deployment check
 

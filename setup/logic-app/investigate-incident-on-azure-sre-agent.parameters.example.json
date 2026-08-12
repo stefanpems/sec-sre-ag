@@ -2,32 +2,8 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "workflowName": {
-      "value": "InvestigateIncidentOnAzureSREAgent"
-    },
-    "location": {
-      "value": "eastus"
-    },
     "sreAgentTriggerUrl": {
-      "value": "https://<agent-host>.<region>.azuresre.ai/api/v1/httptriggers/trigger/<trigger-id>"
-    },
-    "sreAgentResourceGroupResourceId": {
-      "value": "/subscriptions/<subscription-id>/resourceGroups/<sre-agent-resource-group>"
-    },
-    "assignSreAgentRole": {
-      "value": true
-    },
-    "assignSentinelAutomationRole": {
-      "value": false
-    },
-    "sentinelAutomationPrincipalId": {
-      "value": ""
-    },
-    "tags": {
-      "value": {
-        "solution": "sec-sre-agent",
-        "component": "incident-investigation-playbook"
-      }
+      "value": "https://<agent-host>.<region>.azuresre.ai/api/v1/httptriggers/trigger/<incident-investigation-trigger-id>"
     }
   }
 }

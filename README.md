@@ -597,19 +597,20 @@ After creating the corresponding incident-investigation and user-investigation
 HTTP triggers in Azure SRE Agent, optionally deploy either or both parameterized
 Logic App ARM templates under [`setup/logic-app`](setup/logic-app/README.md).
 Do not deploy a playbook before its target HTTP trigger exists and its URL has
-been recorded for the template parameters.
+been recorded. Deploy the templates to the same resource group as the Azure SRE
+Agent; each template exposes only the corresponding HTTP trigger URL and derives
+all other deployment values from fixed settings or that resource group.
 
 The incident template creates a Sentinel incident-creation playbook. The user
 template creates an Account Entity playbook that sends the selected user's UPN
 to Azure SRE Agent. Each template creates its own Microsoft Sentinel connection
-and system-assigned workflow identity, and can assign the built-in `SRE Agent
-Standard User` role to that identity on the target agent resource group.
+and system-assigned workflow identity, and assigns the built-in `SRE Agent
+Standard User` role to that identity on the deployment resource group.
 
-Use a separate target-specific parameter file for each deployed playbook and
-grant Microsoft Sentinel permission to run playbooks in the Logic App resource
-group. The template guide documents the required values, validation and
-deployment commands, optional Sentinel automation role assignment, and
-post-deployment checks.
+Use a separate target-specific parameter file containing only the trigger URL
+for each deployed playbook. Grant Microsoft Sentinel permission to run
+playbooks in the Logic App resource group separately. The template guide
+documents the validation, deployment, and post-deployment checks.
 
 ### Setup verification sources
 
