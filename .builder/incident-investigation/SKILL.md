@@ -64,6 +64,9 @@ This skill performs comprehensive security investigations on incidents from **Mi
 | [SKILL.md](SKILL.md) | This file — skill instructions |
 | [incident-queries.yaml](incident-queries.yaml) | Pre-built KQL queries (Q1–Q10) for incident data extraction |
 | [generate_html_report.py](generate_html_report.py) | HTML report generator — reads JSON export, produces styled HTML report |
+| [technical-report-docx.md](technical-report-docx.md) | Optional DOCX technical report (private module resolved from `codeRefs/*/rapporto-tecnico-soc/`) — read ONLY on explicit request |
+
+> The DOCX technical report module (scripts, schema, template) is **not** subject to the File Resolution cascade below: it lives only in a private repository connected to the agent. Follow [technical-report-docx.md](technical-report-docx.md).
 
 ### File Resolution (codeRefs-first)
 
@@ -289,7 +292,8 @@ Step 0.4: Analyze the user's ORIGINAL prompt for implicit intent:
 
           USE-CACHE KEYWORDS (trigger cache reuse):
             "complete", "continue", "finish", "use cached", "use existing",
-            "resume", "generate report"
+            "resume", "generate report", "technical report", "rapporto tecnico",
+            "docx report"
           → If ANY use-cache keyword is detected → LOAD cache, skip to Step 0.6
 
           NO IMPLICIT INTENT DETECTED:
@@ -679,6 +683,7 @@ ELSE IF user says "done" or declines:
 | **Markdown file** | Only if user explicitly requests | Save full investigation report as `.md` file |
 | **HTML report** | Only if user explicitly requests | Resolve `generate_html_report.py` via [File Resolution cascade](#file-resolution-coderefs-first) and run: `python3 <resolved_path>/generate_html_report.py <json_file> --output-dir reports/incident-investigation/` |
 | **JSON export** | Only if user explicitly requests | Save investigation data using the JSON Export Structure below |
+| **DOCX technical report** | Only if user explicitly requests a technical report / rapporto tecnico (new or update of an issued one) | `read_skill_file("incident-investigation", "technical-report-docx.md")` and follow it. The agent writes only the JSON; the private module renders the DOCX. If the module is not found under `codeRefs/`, report it and stop |
 
 > **Conditional — File Resolution Cascade:** The `generate_html_report.py` script is resolved ONLY when the user requests HTML output.
 > 1. Check `codeRefs/sec-sre-ag/incident-investigation/generate_html_report.py` → if found, use that path.

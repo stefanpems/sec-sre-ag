@@ -80,6 +80,8 @@ Deep-dives into individual security incidents from Microsoft Defender XDR / Micr
 | 4 | *Show me the complete forensic timeline for incident 11111* |
 | 5 | *Extract all IoCs from incident 22222 and enrich them* |
 
+Optional: DOCX technical report rendered by a private module connected as a code repository — see [`docs/technical-report-docx-setup.md`](docs/technical-report-docx-setup.md).
+
 ### incident-listing
 
 Lists recent security incidents from the Sentinel `SecurityIncident` table aligned with the Defender XDR portal view. Filters by last modification time, excludes phantom incidents (auto-closed with no alerts), and projects ID, title, severity, status, owner, and alert count.
